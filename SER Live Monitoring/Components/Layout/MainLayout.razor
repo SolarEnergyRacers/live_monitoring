@@ -1,20 +1,23 @@
 ﻿@inherits LayoutComponentBase
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
+<MudThemeProvider IsDarkMode="true" DefaultScrollbar="true" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
-        </div>
-
-        <article class="content px-4">
+<MudLayout>
+    <MudDrawer Open="true" Elevation="1" Style="color: #C1C1C4;">
+        <MudNavMenu Style="display: flex; flex-flow: column; height: inherit;">
+            <MudNavLink Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Speed" Href="/">Live Overview</MudNavLink>
+        </MudNavMenu>
+    </MudDrawer>
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge">
             @Body
-        </article>
-    </main>
-</div>
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.
