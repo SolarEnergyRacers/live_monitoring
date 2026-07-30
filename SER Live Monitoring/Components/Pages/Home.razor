@@ -1,7 +1,156 @@
-﻿@page "/"
+@page "/"
+@implements IDisposable
+@inject SerialPortMonitorService SerialService
 
 <PageTitle>Home</PageTitle>
 
-<h1>Hello, world!</h1>
+<MudText Typo="Typo.h4" Class="mb-4">Live Overview</MudText>
 
-Welcome to your new app.
+<MudPaper Class="pa-4 mb-4" Elevation="2">
+    <MudGrid>
+        <MudItem xs="12" sm="4">
+            <MudSelect T="string" Label="COM Port" @bind-Value="_selectedPort" Disabled="_isConnected">
+                @foreach (var port in _availablePorts)
+                {
+                    <MudSelectItem T="string" Value="@port">@port</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="3">
+            <MudSelect T="int" Label="Baud Rate" @bind-Value="_baudRate" Disabled="_isConnected">
+                @foreach (var baud in _baudRates)
+                {
+                    <MudSelectItem T="int" Value="@baud">@baud</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="2">
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshPorts" Disabled="_isConnected">
+                Refresh
+            </MudButton>
+        </MudItem>
+        <MudItem xs="12" sm="3">
+            @if (_isConnected)
+            {
+                <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Error" StartIcon="@Icons.Material.Filled.LinkOff" OnClick="Disconnect" FullWidth="true">
+                    Disconnect
+                </MudButton>
+            }
+            else
+            {
+                <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" StartIcon="@Icons.Material.Filled.Link" OnClick="Connect" Disabled="string.IsNullOrEmpty(_selectedPort)" FullWidth="true">
+                    Connect
+                </MudButton>
+            }
+        </MudItem>
+    </MudGrid>
+
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-3">
+        <MudChip T="string" Color="@StatusColor" Variant="Variant.Filled">@SerialService.Status</MudChip>
+        @if (!string.IsNullOrEmpty(SerialService.PortName))
+        {
+            <MudText>@SerialService.PortName @@ @_baudRate baud</MudText>
+        }
+    </MudStack>
+
+    @if (!string.IsNullOrEmpty(SerialService.LastError))
+    {
+        <MudAlert Severity="Severity.Error" Class="mt-3" Dense="true">@SerialService.LastError</MudAlert>
+    }
+</MudPaper>
+
+<MudPaper Class="pa-4 mb-4" Elevation="2">
+    <MudText Typo="Typo.subtitle1">Latest Reading</MudText>
+    @if (_latest is null)
+    {
+        <MudText Typo="Typo.body2" Color="MudBlazor.Color.Secondary">No data received yet.</MudText>
+    }
+    else
+    {
+        <MudText Typo="Typo.h3">@_latest.Value.ToString("0.###") <MudText Typo="Typo.h5" Style="display:inline">@_latest.Unit</MudText></MudText>
+        <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">@_latest.Timestamp.ToString("HH:mm:ss.fff")</MudText>
+    }
+</MudPaper>
+
+<MudPaper Class="pa-4" Elevation="2">
+    <MudText Typo="Typo.subtitle1" Class="mb-2">Recent Readings</MudText>
+    <MudTable Items="_history" Dense="true" Hover="true" FixedHeader="true" Height="400px">
+        <HeaderContent>
+            <MudTh>Time</MudTh>
+            <MudTh>Value</MudTh>
+            <MudTh>Unit</MudTh>
+            <MudTh>Raw</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Time">@context.Timestamp.ToString("HH:mm:ss.fff")</MudTd>
+            <MudTd DataLabel="Value">@context.Value.ToString("0.###")</MudTd>
+            <MudTd DataLabel="Unit">@context.Unit</MudTd>
+            <MudTd DataLabel="Raw">@context.RawLine</MudTd>
+        </RowTemplate>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private const int MaxHistory = 200;
+    private static readonly int[] _baudRates = [9600, 19200, 38400, 57600, 115200];
+
+    private List<string> _availablePorts = [];
+    private LinkedList<SensorReading> _history = new();
+    private SensorReading? _latest;
+
+    private string? _selectedPort;
+    private int _baudRate = 9600;
+    private bool _isConnected => SerialService.Status == SerialConnectionStatus.Connected;
+
+    private MudBlazor.Color StatusColor => SerialService.Status switch
+    {
+        SerialConnectionStatus.Connected => MudBlazor.Color.Success,
+        SerialConnectionStatus.Error => MudBlazor.Color.Error,
+        _ => MudBlazor.Color.Default
+    };
+
+    protected override void OnInitialized()
+    {
+        RefreshPorts();
+        SerialService.ReadingReceived += OnReadingReceived;
+        SerialService.StatusChanged += OnStatusChanged;
+    }
+
+    private void RefreshPorts()
+    {
+        _availablePorts = [.. SerialPortMonitorService.GetAvailablePortNames()];
+        if (_selectedPort is null || !_availablePorts.Contains(_selectedPort))
+            _selectedPort = _availablePorts.FirstOrDefault();
+    }
+
+    private void Connect()
+    {
+        if (!string.IsNullOrEmpty(_selectedPort))
+            SerialService.Connect(_selectedPort, _baudRate);
+    }
+
+    private void Disconnect() => SerialService.Disconnect();
+
+    private void OnReadingReceived(SensorReading reading)
+    {
+        InvokeAsync(() =>
+        {
+            _latest = reading;
+            _history.AddFirst(reading);
+            while (_history.Count > MaxHistory)
+                _history.RemoveLast();
+            StateHasChanged();
+        });
+    }
+
+    private void OnStatusChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        SerialService.ReadingReceived -= OnReadingReceived;
+        SerialService.StatusChanged -= OnStatusChanged;
+    }
+}

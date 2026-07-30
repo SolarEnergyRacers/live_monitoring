@@ -1,5 +1,7 @@
 using SER_Live_Monitoring.Components;
+using SER_Live_Monitoring.Services;
 using MudBlazor.Services;
+using ApexCharts;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -8,6 +10,10 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 builder.Services.AddMudServices();
+builder.Services.AddApexCharts();
+
+builder.Services.AddSingleton<IDataDecoder, DummyLineDecoder>();
+builder.Services.AddSingleton<SerialPortMonitorService>();
 
 var app = builder.Build();
 

@@ -10,7 +10,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Blazor-ApexCharts" Version="7.0.0" />
     <PackageReference Include="MudBlazor" Version="9.7.0" />
+    <PackageReference Include="System.IO.Ports" Version="10.0.10" />
   </ItemGroup>
 
 </Project>
