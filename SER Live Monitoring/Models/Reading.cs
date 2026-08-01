@@ -6,5 +6,5 @@ public class Reading
     public string ReadingName { get; set; }
     public string Unit {  get; set; }
     public double Value { get; set; }
-    public string[] Tags { get; set; }  
+    public Dictionary<string, string> Tags { get; set; }
 }

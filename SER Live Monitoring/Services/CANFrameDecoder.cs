@@ -53,7 +53,7 @@ public class CANFrameDecoder : IDataDecoder
 
         if (addr == CanConfig.BmsBaseAddr) // BMU heartbeat / serial number
         {
-            readings.Add(NewReading(ts, "bms_heartbeat", 1, tags: [$"bmu_id={GetInt(data, 32, false, 1)}"]));
+            readings.Add(NewReading(ts, "bms_heartbeat", 1, tags: [("bmu_id", GetInt(data, 32, false, 1).ToString())]));
         }
         else if (sub <= 0x0C) // CMU status / cell data, CMU0 = 0x01-0x03, CMU1 = 0x04-0x06, ...
         {
@@ -61,9 +61,9 @@ public class CANFrameDecoder : IDataDecoder
 
             if (sub is 0x01 or 0x04 or 0x07 or 0x0A) // CMU serial number & temperatures
             {
-                readings.Add(NewReading(ts, "cmu_heartbeat", 1, tags: [$"cmu_id={GetInt(data, 32, false, 0)}", $"cmu_num={cmuNum}"]));
-                readings.Add(NewReading(ts, "pcb_temp", GetInt(data, 16, true, 2) / 10.0, "°C", $"cmu_num={cmuNum}"));
-                readings.Add(NewReading(ts, "cell_temp", GetInt(data, 16, true, 3) / 10.0, "°C", $"cmu_num={cmuNum}"));
+                readings.Add(NewReading(ts, "cmu_heartbeat", 1, tags: [("cmu_id", GetInt(data, 32, false, 0).ToString()), ("cmu_num", cmuNum.ToString())]));
+                readings.Add(NewReading(ts, "pcb_temp", GetInt(data, 16, true, 2) / 10.0, "°C", ("cmu_num", cmuNum.ToString())));
+                readings.Add(NewReading(ts, "cell_temp", GetInt(data, 16, true, 3) / 10.0, "°C", ("cmu_num", cmuNum.ToString())));
             }
             else // Voltages 1 & 2 (four cells each)
             {
@@ -72,7 +72,7 @@ public class CANFrameDecoder : IDataDecoder
                 {
                     int cellNum = i + indexOffset;
                     readings.Add(NewReading(ts, "cell_voltage", GetInt(data, 16, true, i) / 1000.0, "V",
-                        $"cmu_num={cmuNum}", $"cell_num={cellNum}", $"cell_index={cmuNum * 8 + cellNum}"));
+                        ("cmu_num", cmuNum.ToString()), ("cell_num", cellNum.ToString()), ("cell_index", (cmuNum * 8 + cellNum).ToString())));
                 }
             }
         }
@@ -96,14 +96,14 @@ public class CANFrameDecoder : IDataDecoder
         else if (sub == 0xF8) // Min/max cell voltage
         {
             readings.Add(NewReading(ts, "min_voltage", GetInt(data, 16, false, 0) / 1000.0, "V",
-                $"cmu_num={GetInt(data, 8, false, 4)}", $"cell_num={GetInt(data, 8, false, 5)}"));
+                ("cmu_num", GetInt(data, 8, false, 4).ToString()), ("cell_num", GetInt(data, 8, false, 5).ToString())));
             readings.Add(NewReading(ts, "max_voltage", GetInt(data, 16, false, 1) / 1000.0, "V",
-                $"cmu_num={GetInt(data, 8, false, 6)}", $"cell_num={GetInt(data, 8, false, 7)}"));
+                ("cmu_num", GetInt(data, 8, false, 6).ToString()), ("cell_num", GetInt(data, 8, false, 7).ToString())));
         }
         else if (sub == 0xF9) // Min/max cell temp
         {
-            readings.Add(NewReading(ts, "min_temp", GetInt(data, 16, false, 0) / 10.0, "°C", $"cmu_num={GetInt(data, 8, false, 4)}"));
-            readings.Add(NewReading(ts, "max_temp", GetInt(data, 16, false, 1) / 10.0, "°C", $"cmu_num={GetInt(data, 8, false, 6)}"));
+            readings.Add(NewReading(ts, "min_temp", GetInt(data, 16, false, 0) / 10.0, "°C", ("cmu_num", GetInt(data, 8, false, 4).ToString())));
+            readings.Add(NewReading(ts, "max_temp", GetInt(data, 16, false, 1) / 10.0, "°C", ("cmu_num", GetInt(data, 8, false, 6).ToString())));
         }
         else if (sub == 0xFA) // Pack voltage & current
         {
@@ -142,7 +142,7 @@ public class CANFrameDecoder : IDataDecoder
             var m when m == CanConfig.Mppt3Addr => "3",
             _ => $"Err:{addr}"
         };
-        string tag = $"mppt_id={mpptId}";
+        var tag = ("mppt_id", mpptId);
 
         var readings = new List<Reading>();
 
@@ -280,14 +280,14 @@ public class CANFrameDecoder : IDataDecoder
         return readings;
     }
 
-    private static Reading NewReading(DateTime timestamp, string name, double value, string unit = "", params string[] tags)
+    private static Reading NewReading(DateTime timestamp, string name, double value, string unit = "", params (string Key, string Value)[] tags)
         => new()
         {
             Timestamp = timestamp,
             ReadingName = name,
             Value = value,
             Unit = unit,
-            Tags = tags
+            Tags = tags.ToDictionary(t => t.Key, t => t.Value)
         };
 
     // Reads a big-endian IEEE-754 float when littleEndian is false, matching the original protocol's per-message byte order.
