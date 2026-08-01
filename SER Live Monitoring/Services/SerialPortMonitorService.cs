@@ -11,18 +11,14 @@ public enum SerialConnectionStatus
     Error
 }
 
-/// <summary>
-/// Owns the SerialPort lifecycle and raises decoded readings for subscribers (e.g. the Home page).
-/// Registered as a singleton so the connection and its listeners survive across circuits/pages.
-/// </summary>
 public class SerialPortMonitorService : IDisposable
 {
     private readonly IDataDecoder _decoder;
-    private readonly StringBuilder _buffer = new();
+    private readonly List<byte> _buffer = new();
     private readonly Lock _bufferLock = new();
     private SerialPort? _serialPort;
 
-    public event Action<SensorReading>? ReadingReceived;
+    public event Action<List<Reading>>? ReadingReceived;
     public event Action? StatusChanged;
 
     public SerialConnectionStatus Status { get; private set; } = SerialConnectionStatus.Disconnected;
@@ -92,10 +88,13 @@ public class SerialPortMonitorService : IDisposable
         if (_serialPort is not { IsOpen: true } port)
             return;
 
-        string chunk;
+        byte[] chunk;
+
         try
         {
-            chunk = port.ReadExisting();
+            var count = port.BytesToRead;
+            chunk = new byte[count];
+            port.Read(chunk, 0, count);
         }
         catch (Exception ex)
         {
@@ -105,23 +104,33 @@ public class SerialPortMonitorService : IDisposable
             return;
         }
 
-        List<string> completeLines = [];
+        List<byte[]> completeLines = [];
+
         lock (_bufferLock)
         {
-            _buffer.Append(chunk);
-            var text = _buffer.ToString();
-            var lines = text.Split('\n');
+            _buffer.AddRange(chunk);
 
-            for (var i = 0; i < lines.Length - 1; i++)
-                completeLines.Add(lines[i].TrimEnd('\r'));
+            while (true)
+            {
+                var newlineIndex = _buffer.IndexOf((byte)'\n');
+                if (newlineIndex < 0)
+                    break;
 
-            _buffer.Clear();
-            _buffer.Append(lines[^1]);
+                var lineBytes = _buffer.GetRange(0, newlineIndex).ToArray();
+
+                // Remove trailing '\r'
+                if (lineBytes.Length > 0 && lineBytes[^1] == (byte)'\r')
+                    Array.Resize(ref lineBytes, lineBytes.Length - 1);
+
+                completeLines.Add(lineBytes);
+
+                _buffer.RemoveRange(0, newlineIndex + 1);
+            }
         }
 
-        foreach (var line in completeLines)
+        foreach (var lineBytes in completeLines)
         {
-            var reading = _decoder.Decode(line);
+            var reading = _decoder.Decode(lineBytes);
             if (reading is not null)
                 ReadingReceived?.Invoke(reading);
         }

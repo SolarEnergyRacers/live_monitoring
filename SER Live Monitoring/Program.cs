@@ -12,10 +12,15 @@ builder.Services.AddRazorComponents()
 builder.Services.AddMudServices();
 builder.Services.AddApexCharts();
 
-builder.Services.AddSingleton<IDataDecoder, DummyLineDecoder>();
+builder.Services.AddSingleton<IDataDecoder, CANFrameDecoder>();
 builder.Services.AddSingleton<SerialPortMonitorService>();
+builder.Services.AddSingleton<ReadingCache>();
+builder.Services.AddSingleton<IReadingCache>(sp => sp.GetRequiredService<ReadingCache>());
 
 var app = builder.Build();
+
+// Force the cache to instantiate now so it starts buffering readings immediately, not on first page visit.
+app.Services.GetRequiredService<ReadingCache>();
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())

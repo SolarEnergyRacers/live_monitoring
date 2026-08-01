@@ -4,5 +4,5 @@ namespace SER_Live_Monitoring.Services;
 
 public interface IDataDecoder
 {
-    SensorReading? Decode(string rawLine);
+    List<Reading> Decode(byte[] data);
 }

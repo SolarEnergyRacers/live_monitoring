@@ -1,6 +1,7 @@
 @page "/"
 @implements IDisposable
 @inject SerialPortMonitorService SerialService
+@inject IReadingCache ReadingCache
 
 <PageTitle>Home</PageTitle>
 
@@ -85,18 +86,17 @@
             <MudTd DataLabel="Time">@context.Timestamp.ToString("HH:mm:ss.fff")</MudTd>
             <MudTd DataLabel="Value">@context.Value.ToString("0.###")</MudTd>
             <MudTd DataLabel="Unit">@context.Unit</MudTd>
-            <MudTd DataLabel="Raw">@context.RawLine</MudTd>
+            
         </RowTemplate>
     </MudTable>
 </MudPaper>
 
 @code {
-    private const int MaxHistory = 200;
     private static readonly int[] _baudRates = [9600, 19200, 38400, 57600, 115200];
 
     private List<string> _availablePorts = [];
-    private LinkedList<SensorReading> _history = new();
-    private SensorReading? _latest;
+    private IReadOnlyList<Reading> _history = [];
+    private Reading? _latest;
 
     private string? _selectedPort;
     private int _baudRate = 9600;
@@ -112,7 +112,10 @@
     protected override void OnInitialized()
     {
         RefreshPorts();
-        SerialService.ReadingReceived += OnReadingReceived;
+        _latest = ReadingCache.Latest;
+        _history = ReadingCache.GetHistory();
+
+        ReadingCache.ReadingAdded += OnReadingAdded;
         SerialService.StatusChanged += OnStatusChanged;
     }
 
@@ -131,14 +134,12 @@
 
     private void Disconnect() => SerialService.Disconnect();
 
-    private void OnReadingReceived(SensorReading reading)
+    private void OnReadingAdded(Reading reading)
     {
         InvokeAsync(() =>
         {
             _latest = reading;
-            _history.AddFirst(reading);
-            while (_history.Count > MaxHistory)
-                _history.RemoveLast();
+            _history = ReadingCache.GetHistory();
             StateHasChanged();
         });
     }
@@ -150,7 +151,7 @@
 
     public void Dispose()
     {
-        SerialService.ReadingReceived -= OnReadingReceived;
+        ReadingCache.ReadingAdded -= OnReadingAdded;
         SerialService.StatusChanged -= OnStatusChanged;
     }
 }

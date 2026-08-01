@@ -15,4 +15,11 @@
     <PackageReference Include="System.IO.Ports" Version="10.0.10" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Remove="SER Live Monitoring.Tests\**" />
+    <Content Remove="SER Live Monitoring.Tests\**" />
+    <EmbeddedResource Remove="SER Live Monitoring.Tests\**" />
+    <None Remove="SER Live Monitoring.Tests\**" />
+  </ItemGroup>
+
 </Project>
