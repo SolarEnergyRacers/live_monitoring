@@ -104,33 +104,24 @@ public class SerialPortMonitorService : IDisposable
             return;
         }
 
-        List<byte[]> completeLines = [];
+        const int PacketSize = 12;
+
+        List<byte[]> packets = [];
 
         lock (_bufferLock)
         {
             _buffer.AddRange(chunk);
 
-            while (true)
+            while (_buffer.Count >= PacketSize)
             {
-                var newlineIndex = _buffer.IndexOf((byte)'\n');
-                if (newlineIndex < 0)
-                    break;
-
-                var lineBytes = _buffer.GetRange(0, newlineIndex).ToArray();
-
-                // Remove trailing '\r'
-                if (lineBytes.Length > 0 && lineBytes[^1] == (byte)'\r')
-                    Array.Resize(ref lineBytes, lineBytes.Length - 1);
-
-                completeLines.Add(lineBytes);
-
-                _buffer.RemoveRange(0, newlineIndex + 1);
+                packets.Add(_buffer.GetRange(0, PacketSize).ToArray());
+                _buffer.RemoveRange(0, PacketSize);
             }
         }
 
-        foreach (var lineBytes in completeLines)
+        foreach (var packet in packets)
         {
-            var reading = _decoder.Decode(lineBytes);
+            var reading = _decoder.Decode(packet);
             if (reading is not null)
                 ReadingReceived?.Invoke(reading);
         }

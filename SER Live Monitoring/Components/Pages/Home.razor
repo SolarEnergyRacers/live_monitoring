@@ -1,7 +1,7 @@
 @page "/"
 @implements IDisposable
 @inject SerialPortMonitorService SerialService
-@inject IReadingCache ReadingCache
+@inject DataManager DataManager
 
 <PageTitle>Home</PageTitle>
 
@@ -80,22 +80,21 @@
             <MudTh>Time</MudTh>
             <MudTh>Value</MudTh>
             <MudTh>Unit</MudTh>
-            <MudTh>Raw</MudTh>
         </HeaderContent>
         <RowTemplate>
             <MudTd DataLabel="Time">@context.Timestamp.ToString("HH:mm:ss.fff")</MudTd>
+            <MudTd DataLabel="Name">@context.ReadingName</MudTd>
             <MudTd DataLabel="Value">@context.Value.ToString("0.###")</MudTd>
             <MudTd DataLabel="Unit">@context.Unit</MudTd>
-            
         </RowTemplate>
     </MudTable>
 </MudPaper>
 
-@code {
+    @code {
     private static readonly int[] _baudRates = [9600, 19200, 38400, 57600, 115200];
 
     private List<string> _availablePorts = [];
-    private IReadOnlyList<Reading> _history = [];
+    private List<Reading> _history = new();
     private Reading? _latest;
 
     private string? _selectedPort;
@@ -112,11 +111,8 @@
     protected override void OnInitialized()
     {
         RefreshPorts();
-        _latest = ReadingCache.Latest;
-        _history = ReadingCache.GetHistory();
-
-        ReadingCache.ReadingAdded += OnReadingAdded;
         SerialService.StatusChanged += OnStatusChanged;
+        DataManager.ReadingsAdded += OnReadingsAdded;
     }
 
     private void RefreshPorts()
@@ -134,12 +130,12 @@
 
     private void Disconnect() => SerialService.Disconnect();
 
-    private void OnReadingAdded(Reading reading)
+    private void OnReadingsAdded(List<Reading> readings)
     {
         InvokeAsync(() =>
         {
-            _latest = reading;
-            _history = ReadingCache.GetHistory();
+            _history.AddRange(readings);
+            _latest = readings[^1];
             StateHasChanged();
         });
     }
@@ -151,7 +147,7 @@
 
     public void Dispose()
     {
-        ReadingCache.ReadingAdded -= OnReadingAdded;
+        DataManager.ReadingsAdded -= OnReadingsAdded;
         SerialService.StatusChanged -= OnStatusChanged;
     }
 }
