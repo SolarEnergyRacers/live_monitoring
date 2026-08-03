@@ -121,9 +121,9 @@ public class SerialPortMonitorService : IDisposable
 
         foreach (var packet in packets)
         {
-            var reading = _decoder.Decode(packet);
-            if (reading is not null)
-                ReadingReceived?.Invoke(reading);
+            var readings = _decoder.Decode(packet);
+            if (readings.Count > 0)
+                ReadingReceived?.Invoke(readings);
         }
     }
 

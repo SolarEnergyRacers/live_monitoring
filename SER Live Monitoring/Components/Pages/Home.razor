@@ -91,11 +91,13 @@
 </MudPaper>
 
     @code {
+    private const int MaxHistory = 200;
     private static readonly int[] _baudRates = [9600, 19200, 38400, 57600, 115200];
 
     private List<string> _availablePorts = [];
     private List<Reading> _history = new();
     private Reading? _latest;
+    private System.Threading.Timer? _uiRefreshTimer;
 
     private string? _selectedPort;
     private int _baudRate = 9600;
@@ -113,6 +115,13 @@
         RefreshPorts();
         SerialService.StatusChanged += OnStatusChanged;
         DataManager.ReadingsAdded += OnReadingsAdded;
+
+        // redraw ui at 2Hz, to prevent redrawing for every CAN frame received
+        _uiRefreshTimer = new System.Threading.Timer(
+            _ => InvokeAsync(StateHasChanged),
+            null,
+            TimeSpan.FromMilliseconds(500),
+            TimeSpan.FromMilliseconds(500));
     }
 
     private void RefreshPorts()
@@ -132,11 +141,13 @@
 
     private void OnReadingsAdded(List<Reading> readings)
     {
-        InvokeAsync(() =>
+        _ = InvokeAsync(() =>
         {
             _history.AddRange(readings);
-            _latest = readings[^1];
-            StateHasChanged();
+            if (_history.Count > MaxHistory)
+                _history.RemoveRange(0, _history.Count - MaxHistory);
+            
+            _latest = readings[0];
         });
     }
 
@@ -147,6 +158,7 @@
 
     public void Dispose()
     {
+        _uiRefreshTimer?.Dispose();
         DataManager.ReadingsAdded -= OnReadingsAdded;
         SerialService.StatusChanged -= OnStatusChanged;
     }
