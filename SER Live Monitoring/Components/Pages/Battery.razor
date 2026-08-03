@@ -1,0 +1,233 @@
+@page "/battery"
+@implements IDisposable
+@inject DataManager DataManager
+@inject SerialPortMonitorService SerialService
+
+<PageTitle>Battery Dashboard</PageTitle>
+
+<MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">Battery Dashboard</MudText>
+    <MudChip T="string" Color="@StatusColor" Variant="Variant.Filled">@SerialService.Status</MudChip>
+</MudStack>
+
+<MudGrid Class="mb-4">
+    <MudItem xs="6" sm="4" md="2">
+        <StatTile Title="Pack Voltage" Value="@PackVoltageText" Icon="@Icons.Material.Filled.Bolt" />
+    </MudItem>
+    <MudItem xs="6" sm="4" md="2">
+        <StatTile Title="Pack Current" Value="@PackCurrentText" Icon="@Icons.Material.Filled.ElectricBolt" />
+    </MudItem>
+    <MudItem xs="6" sm="4" md="2">
+        <StatTile Title="Pack Power" Value="@PackPowerText" Icon="@Icons.Material.Filled.Power" />
+    </MudItem>
+    <MudItem xs="6" sm="6" md="3">
+        <StatTile Title="Precharge State" Value="@PrecStateLabel" Icon="@Icons.Material.Filled.Cable" AccentColor="@PrecStateColor" />
+    </MudItem>
+    <MudItem xs="6" sm="6" md="3">
+        <StatTile Title="Contactor Voltage" Value="@ContactorVoltageText" Icon="@Icons.Material.Filled.Power" />
+    </MudItem>
+</MudGrid>
+
+<MudPaper Class="pa-4 mb-4 rounded-lg" Elevation="2">
+    <MudText Typo="Typo.subtitle1" Class="mb-3">Contactors &amp; Drivers</MudText>
+    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2">
+        @foreach (var (name, label, isError) in ContactorFlags)
+        {
+            var isOn = Flag(name);
+            <MudChip T="string" Variant="@FlagVariant(isOn)" Color="@FlagColor(isOn, isError)">@label</MudChip>
+        }
+    </MudStack>
+</MudPaper>
+
+<MudPaper Class="pa-4 mb-4 rounded-lg" Elevation="2">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-3">
+        <MudText Typo="Typo.subtitle1">Pack Status</MudText>
+        <MudStack Row="true" Spacing="2">
+            <MudChip T="string" Variant="Variant.Text" Size="MudBlazor.Size.Small">HW v@(Get("bmu_hw_version")?.Value.ToString("0") ?? "--")</MudChip>
+            <MudChip T="string" Variant="Variant.Text" Size="MudBlazor.Size.Small">Model @(Get("bmu_model_id")?.Value.ToString("0") ?? "--")</MudChip>
+        </MudStack>
+    </MudStack>
+    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2">
+        @foreach (var (name, label, isError) in PackStatusFlags)
+        {
+            var isOn = Flag(name);
+            <MudChip T="string" Variant="@FlagVariant(isOn)" Color="@FlagColor(isOn, isError)">@label</MudChip>
+        }
+    </MudStack>
+</MudPaper>
+
+<MudPaper Class="pa-4 mb-4 rounded-lg" Elevation="2">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-3">
+        <MudText Typo="Typo.subtitle1">Cell Voltages</MudText>
+        <MudStack Row="true" Spacing="4">
+            <MudText Typo="Typo.body2">Min <b class="stat-min">@Fmt(MinVoltage?.Value, " V")</b></MudText>
+            <MudText Typo="Typo.body2">Max <b class="stat-max">@Fmt(MaxVoltage?.Value, " V")</b></MudText>
+            <MudText Typo="Typo.body2">Δ Spread <b>@Fmt(VoltageSpread * 1000, " mV")</b></MudText>
+        </MudStack>
+    </MudStack>
+
+    @for (var cmu = 0; cmu < CmuCount; cmu++)
+    {
+        var cmuNum = cmu;
+        <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary" Class="mt-2 mb-1">CMU @cmuNum</MudText>
+        <div class="cell-grid">
+            @for (var cell = 0; cell < CellsPerCmu; cell++)
+            {
+                var cellNum = cell;
+                var reading = CellVoltage(cmuNum, cellNum);
+                var cssClass = IsMinCell(cmuNum, cellNum) ? "cell-tile cell-min" : IsMaxCell(cmuNum, cellNum) ? "cell-tile cell-max" : "cell-tile";
+                <div class="@cssClass">
+                    <span class="cell-label">C@(cmuNum).@(cellNum)</span>
+                    <span class="cell-value">@(reading is null ? "--" : reading.Value.ToString("0.000"))</span>
+                </div>
+            }
+        </div>
+    }
+</MudPaper>
+
+<MudPaper Class="pa-4 rounded-lg" Elevation="2">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-3">
+        <MudText Typo="Typo.subtitle1">CMU Temperatures</MudText>
+        <MudStack Row="true" Spacing="4">
+            <MudText Typo="Typo.body2">Min <b class="stat-min">@Fmt(MinTemp?.Value, " °C")</b></MudText>
+            <MudText Typo="Typo.body2">Max <b class="stat-max">@Fmt(MaxTemp?.Value, " °C")</b></MudText>
+        </MudStack>
+    </MudStack>
+    <MudGrid>
+        @for (var cmu = 0; cmu < CmuCount; cmu++)
+        {
+            var cmuNum = cmu;
+            <MudItem xs="6" sm="3">
+                <MudPaper Class="pa-3 rounded-lg temp-tile" Elevation="0">
+                    <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">CMU @cmuNum</MudText>
+                    <MudText Typo="Typo.body1">PCB @Fmt(PcbTemp(cmuNum)?.Value, " °C")</MudText>
+                    <MudText Typo="Typo.body1">Cell @Fmt(CellTemp(cmuNum)?.Value, " °C")</MudText>
+                </MudPaper>
+            </MudItem>
+        }
+    </MudGrid>
+</MudPaper>
+
+@code {
+    // The decoder maps CMU cell-voltage sub-messages 0x01-0x0C to cmu_num 0-3, each covering
+    // two 4-cell blocks - i.e. 4 CMUs of 8 cells each.
+    private const int CmuCount = 4;
+    private const int CellsPerCmu = 8;
+
+    private System.Threading.Timer? _uiRefreshTimer;
+
+    private MudBlazor.Color StatusColor => SerialService.Status switch
+    {
+        SerialConnectionStatus.Connected => MudBlazor.Color.Success,
+        SerialConnectionStatus.Error => MudBlazor.Color.Error,
+        _ => MudBlazor.Color.Default
+    };
+
+    private static readonly (string Name, string Label, bool IsError)[] ContactorFlags =
+    [
+        ("output_cont_1_driver", "Output Contactor 1", false),
+        ("output_cont_2_driver", "Output Contactor 2", false),
+        ("output_cont_3_driver", "Output Contactor 3", false),
+        ("err_cont_1_driver", "Contactor 1 Driver Error", true),
+        ("err_cont_2_driver", "Contactor 2 Driver Error", true),
+        ("err_cont_3_driver", "Contactor 3 Driver Error", true),
+        ("err_cont_12v_supp", "12V Supply OK", false),
+        ("prec_timer_elaps", "Precharge Timer Elapsed", false),
+    ];
+
+    // Everything in the pack status group is a fault bit, so it's always rendered in the error style.
+    private static readonly (string Name, string Label, bool IsError)[] PackStatusFlags =
+    [
+        ("cell_over_voltage", "Cell Over-Voltage", true),
+        ("cell_under_voltage", "Cell Under-Voltage", true),
+        ("cell_over_temp", "Cell Over-Temp", true),
+        ("measurement_untrusted", "Measurement Untrusted", true),
+        ("cmu_comm_timeout", "CMU Comm Timeout", true),
+        ("vehicle_comm_timeout", "Vehicle Comm Timeout", true),
+        ("bmu_in_setup_mode", "BMU Setup Mode", true),
+        ("cmu_can_power", "CMU CAN Power", true),
+        ("pack_isolation_fail", "Pack Isolation Fail", true),
+        ("soc_invalid", "SOC Invalid", true),
+        ("can_power_low", "CAN Power Low", true),
+        ("contactor_stuck", "Contactor Stuck", true),
+        ("unexpected_cell", "Unexpected Cell", true),
+    ];
+
+    private Reading? BattVolt => DataManager.GetLatest("batt_volt");
+    private Reading? BattCurr => DataManager.GetLatest("batt_curr");
+    private double? PackPower => BattVolt?.Value * BattCurr?.Value;
+    private Reading? PrecState => DataManager.GetLatest("prec_state");
+    private Reading? ContVoltage => DataManager.GetLatest("cont_voltage");
+
+    private string PackVoltageText => Fmt(BattVolt?.Value, " V");
+    private string PackCurrentText => Fmt(BattCurr?.Value, " A");
+    private string PackPowerText => Fmt(PackPower, " W");
+    private string ContactorVoltageText => Fmt(ContVoltage?.Value, " V");
+
+    // prec_state codes: 0=error, 1=idle, 2=measure, 3=precharge, 4=run, 5=enable
+    private string PrecStateLabel => (int?)PrecState?.Value switch
+    {
+        0 => "Error",
+        1 => "Idle",
+        2 => "Measure",
+        3 => "Precharge",
+        4 => "Run",
+        5 => "Enable",
+        _ => "--"
+    };
+
+    private MudBlazor.Color PrecStateColor => (int?)PrecState?.Value switch
+    {
+        0 => MudBlazor.Color.Error,
+        2 => MudBlazor.Color.Info,
+        3 => MudBlazor.Color.Warning,
+        4 or 5 => MudBlazor.Color.Success,
+        _ => MudBlazor.Color.Default
+    };
+
+    private Reading? MinVoltage => DataManager.GetLatestSingle("min_voltage");
+    private Reading? MaxVoltage => DataManager.GetLatestSingle("max_voltage");
+    private double? VoltageSpread => MaxVoltage?.Value - MinVoltage?.Value;
+
+    private Reading? MinTemp => DataManager.GetLatestSingle("min_temp");
+    private Reading? MaxTemp => DataManager.GetLatestSingle("max_temp");
+
+    private Reading? Get(string name) => DataManager.GetLatest(name);
+    private bool Flag(string name) => Get(name)?.Value == 1;
+
+    // Off is greyed out regardless of category; On is green for normal flags, red for error flags.
+    private static MudBlazor.Color FlagColor(bool isOn, bool isError)
+        => !isOn ? MudBlazor.Color.Default : isError ? MudBlazor.Color.Error : MudBlazor.Color.Success;
+
+    private static Variant FlagVariant(bool isOn) => isOn ? Variant.Filled : Variant.Outlined;
+
+    private Reading? CellVoltage(int cmu, int cell) => DataManager.GetLatest("cell_voltage", ("cmu_num", cmu.ToString()), ("cell_num", cell.ToString()));
+    private Reading? PcbTemp(int cmu) => DataManager.GetLatest("pcb_temp", ("cmu_num", cmu.ToString()));
+    private Reading? CellTemp(int cmu) => DataManager.GetLatest("cell_temp", ("cmu_num", cmu.ToString()));
+
+    private bool IsMinCell(int cmu, int cell) => MatchesLocation(MinVoltage, cmu, cell);
+    private bool IsMaxCell(int cmu, int cell) => MatchesLocation(MaxVoltage, cmu, cell);
+
+    private static bool MatchesLocation(Reading? reading, int cmu, int cell)
+        => reading is not null
+        && reading.Tags.GetValueOrDefault("cmu_num") == cmu.ToString()
+        && reading.Tags.GetValueOrDefault("cell_num") == cell.ToString();
+
+    private static string Fmt(double? value, string suffix)
+        => value is null ? "--" : value.Value.ToString("0.###") + suffix;
+
+    protected override void OnInitialized()
+    {
+        // Data can arrive up to ~100x/sec; repaint on a fixed 2Hz tick instead of per reading.
+        _uiRefreshTimer = new System.Threading.Timer(
+            _ => InvokeAsync(StateHasChanged),
+            null,
+            TimeSpan.FromMilliseconds(500),
+            TimeSpan.FromMilliseconds(500));
+    }
+
+    public void Dispose()
+    {
+        _uiRefreshTimer?.Dispose();
+    }
+}

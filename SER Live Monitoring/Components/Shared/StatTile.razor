@@ -1,0 +1,19 @@
+<MudPaper Class="pa-4 rounded-lg stat-tile" Elevation="2">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3">
+        @if (Icon is not null)
+        {
+            <MudIcon Icon="@Icon" Color="@AccentColor" Size="MudBlazor.Size.Medium" />
+        }
+        <MudStack Spacing="0">
+            <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">@Title</MudText>
+            <MudText Typo="Typo.h6">@Value</MudText>
+        </MudStack>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public MudBlazor.Color AccentColor { get; set; } = MudBlazor.Color.Primary;
+}
