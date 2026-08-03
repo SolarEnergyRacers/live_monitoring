@@ -104,7 +104,7 @@ public class SerialPortMonitorService : IDisposable
             return;
         }
 
-        const int PacketSize = 12;
+        const int PacketSize = 13; // 12 data bytes + linefeed (0x0A)
 
         List<byte[]> packets = [];
 
@@ -114,7 +114,7 @@ public class SerialPortMonitorService : IDisposable
 
             while (_buffer.Count >= PacketSize)
             {
-                packets.Add(_buffer.GetRange(0, PacketSize).ToArray());
+                packets.Add(_buffer.GetRange(0, PacketSize - 1).ToArray());
                 _buffer.RemoveRange(0, PacketSize);
             }
         }

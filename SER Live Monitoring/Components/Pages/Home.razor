@@ -78,6 +78,7 @@
     <MudTable Items="_history" Dense="true" Hover="true" FixedHeader="true" Height="400px">
         <HeaderContent>
             <MudTh>Time</MudTh>
+            <MudTh>Name</MudTh>
             <MudTh>Value</MudTh>
             <MudTh>Unit</MudTh>
         </HeaderContent>
@@ -143,7 +144,7 @@
     {
         _ = InvokeAsync(() =>
         {
-            _history.AddRange(readings);
+            _history.InsertRange(0,readings);
             if (_history.Count > MaxHistory)
                 _history.RemoveRange(0, _history.Count - MaxHistory);
             
