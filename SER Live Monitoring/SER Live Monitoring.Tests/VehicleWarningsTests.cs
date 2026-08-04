@@ -5,7 +5,8 @@ namespace SER_Live_Monitoring.Tests;
 
 public class VehicleWarningsTests
 {
-    private readonly DataManager _dataManager = new(new SerialPortMonitorService(new CANFrameDecoder()));
+    private readonly DataManager _dataManager = new(new SerialPortMonitorService(new CANFrameDecoder(new SettingsService(TestSettingsPath.NewTempPath()))));
+    private readonly WarningThresholds _thresholds = new();
 
     private static Reading NewReading(string name, double value, params (string Key, string Value)[] tags)
         => new() { Timestamp = DateTime.Now, ReadingName = name, Value = value, Unit = "", Tags = tags.ToDictionary(t => t.Key, t => t.Value) };
@@ -16,7 +17,7 @@ public class VehicleWarningsTests
     [Fact]
     public void Evaluate_NoData_ReturnsNoWarnings()
     {
-        var warnings = VehicleWarnings.Evaluate(_dataManager, isConnected: false);
+        var warnings = VehicleWarnings.Evaluate(_dataManager, false, _thresholds);
 
         Assert.Empty(warnings);
     }
@@ -26,7 +27,7 @@ public class VehicleWarningsTests
     {
         _dataManager.Ingest([NewReading("pack_isolation_fail", 1)]);
 
-        var warnings = VehicleWarnings.Evaluate(_dataManager, isConnected: false);
+        var warnings = VehicleWarnings.Evaluate(_dataManager, false, _thresholds);
 
         var warning = Assert.Single(warnings);
         Assert.Equal(WarningLevel.Error, warning.Level);
@@ -38,7 +39,7 @@ public class VehicleWarningsTests
     {
         _dataManager.Ingest([NewReading("pack_isolation_fail", 0)]);
 
-        var warnings = VehicleWarnings.Evaluate(_dataManager, isConnected: false);
+        var warnings = VehicleWarnings.Evaluate(_dataManager, false, _thresholds);
 
         Assert.Empty(warnings);
     }
@@ -51,7 +52,7 @@ public class VehicleWarningsTests
     {
         _dataManager.Ingest([NewReading("min_voltage", min), NewReading("max_voltage", max)]);
 
-        var warnings = VehicleWarnings.Evaluate(_dataManager, isConnected: false);
+        var warnings = VehicleWarnings.Evaluate(_dataManager, false, _thresholds);
 
         Assert.Equal(expectWarning, warnings.Any(w => w.Message.Contains("spread", StringComparison.OrdinalIgnoreCase)));
     }
@@ -61,7 +62,7 @@ public class VehicleWarningsTests
     {
         _dataManager.Ingest([NewReading("max_temp", 65, ("cmu_num", "1"))]);
 
-        var warnings = VehicleWarnings.Evaluate(_dataManager, isConnected: false);
+        var warnings = VehicleWarnings.Evaluate(_dataManager, false, _thresholds);
 
         var warning = Assert.Single(warnings);
         Assert.Equal(WarningLevel.Error, warning.Level);
@@ -73,7 +74,7 @@ public class VehicleWarningsTests
     {
         _dataManager.Ingest([NewReading("max_temp", 35, ("cmu_num", "1"))]);
 
-        var warnings = VehicleWarnings.Evaluate(_dataManager, isConnected: false);
+        var warnings = VehicleWarnings.Evaluate(_dataManager, false, _thresholds);
 
         Assert.Empty(warnings);
     }
@@ -83,7 +84,7 @@ public class VehicleWarningsTests
     {
         _dataManager.Ingest([NewReading("mppt_hw_over_curr", 1, ("mppt_id", "2"))]);
 
-        var warnings = VehicleWarnings.Evaluate(_dataManager, isConnected: false);
+        var warnings = VehicleWarnings.Evaluate(_dataManager, false, _thresholds);
 
         var warning = Assert.Single(warnings);
         Assert.Contains("MPPT 2", warning.Message);
@@ -100,7 +101,7 @@ public class VehicleWarningsTests
             NewReading("calc_mppt_out_power", 5, ("mppt_id", "4")),
         ]);
 
-        var warnings = VehicleWarnings.Evaluate(_dataManager, isConnected: false);
+        var warnings = VehicleWarnings.Evaluate(_dataManager, false, _thresholds);
 
         Assert.Contains(warnings, w => w.Message.Contains("MPPT 4"));
         Assert.DoesNotContain(warnings, w => w.Message.Contains("MPPT 1"));
@@ -119,7 +120,7 @@ public class VehicleWarningsTests
             NewReading("calc_mppt_out_power", 1, ("mppt_id", "4")),
         ]);
 
-        var warnings = VehicleWarnings.Evaluate(_dataManager, isConnected: false);
+        var warnings = VehicleWarnings.Evaluate(_dataManager, false, _thresholds);
 
         Assert.Empty(warnings);
     }
@@ -129,7 +130,7 @@ public class VehicleWarningsTests
     {
         _dataManager.Ingest([NewReadingAt(DateTime.Now.AddSeconds(-10), "device_heartbeat", 1, ("device", "Bms"))]);
 
-        var warnings = VehicleWarnings.Evaluate(_dataManager, isConnected: true);
+        var warnings = VehicleWarnings.Evaluate(_dataManager, true, _thresholds);
 
         var warning = Assert.Single(warnings);
         Assert.Contains("BMS", warning.Message);
@@ -143,7 +144,7 @@ public class VehicleWarningsTests
         // covered by the connection status chip, so the check is skipped entirely.
         _dataManager.Ingest([NewReadingAt(DateTime.Now.AddSeconds(-10), "device_heartbeat", 1, ("device", "Bms"))]);
 
-        var warnings = VehicleWarnings.Evaluate(_dataManager, isConnected: false);
+        var warnings = VehicleWarnings.Evaluate(_dataManager, false, _thresholds);
 
         Assert.Empty(warnings);
     }
@@ -153,7 +154,7 @@ public class VehicleWarningsTests
     {
         _dataManager.Ingest([NewReading("device_heartbeat", 1, ("device", "Bms"))]);
 
-        var warnings = VehicleWarnings.Evaluate(_dataManager, isConnected: true);
+        var warnings = VehicleWarnings.Evaluate(_dataManager, true, _thresholds);
 
         Assert.Empty(warnings);
     }

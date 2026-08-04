@@ -5,20 +5,33 @@ namespace SER_Live_Monitoring.Services;
 
 public class CANFrameDecoder : IDataDecoder
 {
+    private readonly SettingsService _settings;
+
+    public CANFrameDecoder(SettingsService settings)
+    {
+        _settings = settings;
+    }
+
+    private CanAddressSettings Addresses => _settings.Current.CanAddresses;
+
     public List<Reading> Decode(byte[] rawLine)
     {
         short addr = (short)(BinaryPrimitives.ReadInt16BigEndian(rawLine.AsSpan(0, 2)) & 0x7FF);
         byte[] data = rawLine[2..];
         var timestamp = DateTime.Now;
 
+        // Read the configured addresses once per frame so a settings change mid-run can't cause a
+        // single frame to be classified against a mix of old and new addresses.
+        var addresses = Addresses;
+
         string device;
         List<Reading> readings;
 
-        if (IsBmsFrame(addr)) { device = "Bms"; readings = DecodeBms(addr, data, timestamp); }
-        else if (IsMpptFrame(addr)) { device = "Mppt" + GetMpptId(addr); readings = DecodeMppt(addr, data, timestamp); }
-        else if (IsDcFrame(addr)) { device = "Dc"; readings = DecodeDc(addr, data, timestamp); }
-        else if (IsAcFrame(addr)) { device = "Ac"; readings = DecodeAc(addr, data, timestamp); }
-        else if (IsMcFrame(addr)) { device = "Mc"; readings = DecodeMc(addr, data, timestamp); }
+        if (IsBmsFrame(addr, addresses)) { device = "Bms"; readings = DecodeBms(addr, data, timestamp, addresses); }
+        else if (IsMpptFrame(addr, addresses)) { device = "Mppt" + GetMpptId(addr, addresses); readings = DecodeMppt(addr, data, timestamp, addresses); }
+        else if (IsDcFrame(addr, addresses)) { device = "Dc"; readings = DecodeDc(addr, data, timestamp); }
+        else if (IsAcFrame(addr, addresses)) { device = "Ac"; readings = DecodeAc(addr, data, timestamp); }
+        else if (IsMcFrame(addr, addresses)) { device = "Mc"; readings = DecodeMc(addr, data, timestamp); }
         else return [];
 
         // Emitted for every recognized frame regardless of sub-address, so the UI can show
@@ -27,38 +40,36 @@ public class CANFrameDecoder : IDataDecoder
         return readings;
     }
 
-    public bool IsMpptFrame(short addr)
+    public bool IsMpptFrame(short addr) => IsMpptFrame(addr, Addresses);
+
+    public bool IsBmsFrame(short addr) => IsBmsFrame(addr, Addresses);
+
+    public bool IsAcFrame(short addr) => IsAcFrame(addr, Addresses);
+
+    public bool IsDcFrame(short addr) => IsDcFrame(addr, Addresses);
+
+    public bool IsMcFrame(short addr) => IsMcFrame(addr, Addresses);
+
+    private static bool IsMpptFrame(short addr, CanAddressSettings cfg)
     {
         var masked = addr & 0xFF0;
-        return masked == CanConfig.Mppt1Addr || masked == CanConfig.Mppt2Addr || masked == CanConfig.Mppt3Addr || masked == CanConfig.Mppt4Addr;
+        return masked == cfg.Mppt1Addr || masked == cfg.Mppt2Addr || masked == cfg.Mppt3Addr || masked == cfg.Mppt4Addr;
     }
 
-    public bool IsBmsFrame(short addr)
-    {
-        return CanConfig.BmsBaseAddr == (addr & 0xF00);
-    }
+    private static bool IsBmsFrame(short addr, CanAddressSettings cfg) => cfg.BmsBaseAddr == (addr & 0xF00);
 
-    public bool IsAcFrame(short addr)
-    {
-        return CanConfig.AcBaseAddr == (addr & 0xFF0);
-    }
+    private static bool IsAcFrame(short addr, CanAddressSettings cfg) => cfg.AcBaseAddr == (addr & 0xFF0);
 
-    public bool IsDcFrame(short addr)
-    {
-        return CanConfig.DcBaseAddr == (addr & 0xFF0);
-    }
+    private static bool IsDcFrame(short addr, CanAddressSettings cfg) => cfg.DcBaseAddr == (addr & 0xFF0);
 
-    public bool IsMcFrame(short addr)
-    {
-        return CanConfig.McBaseAddr == (addr & 0xF00);
-    }
+    private static bool IsMcFrame(short addr, CanAddressSettings cfg) => cfg.McBaseAddr == (addr & 0xF00);
 
-    private static List<Reading> DecodeBms(short addr, byte[] data, DateTime ts)
+    private static List<Reading> DecodeBms(short addr, byte[] data, DateTime ts, CanAddressSettings cfg)
     {
         var readings = new List<Reading>();
         int sub = addr & 0xFF;
 
-        if (addr == CanConfig.BmsBaseAddr) // BMU heartbeat / serial number
+        if (addr == cfg.BmsBaseAddr) // BMU heartbeat / serial number
         {
             readings.Add(NewReading(ts, "bms_heartbeat", 1, tags: [("bmu_id", GetInt(data, 32, false, 1).ToString())]));
         }
@@ -142,18 +153,18 @@ public class CANFrameDecoder : IDataDecoder
         return readings;
     }
 
-    private static string GetMpptId(short addr) => (addr & 0xFF0) switch
+    private static string GetMpptId(short addr, CanAddressSettings cfg) => (addr & 0xFF0) switch
     {
-        var m when m == CanConfig.Mppt1Addr => "1",
-        var m when m == CanConfig.Mppt2Addr => "2",
-        var m when m == CanConfig.Mppt3Addr => "3",
-        var m when m == CanConfig.Mppt4Addr => "4",
+        var m when m == cfg.Mppt1Addr => "1",
+        var m when m == cfg.Mppt2Addr => "2",
+        var m when m == cfg.Mppt3Addr => "3",
+        var m when m == cfg.Mppt4Addr => "4",
         _ => $"Err:{addr}"
     };
 
-    private static List<Reading> DecodeMppt(short addr, byte[] data, DateTime ts)
+    private static List<Reading> DecodeMppt(short addr, byte[] data, DateTime ts, CanAddressSettings cfg)
     {
-        var tag = ("mppt_id", GetMpptId(addr));
+        var tag = ("mppt_id", GetMpptId(addr, cfg));
 
         var readings = new List<Reading>();
 

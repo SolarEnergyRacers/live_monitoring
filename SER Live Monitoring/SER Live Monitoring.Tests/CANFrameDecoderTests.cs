@@ -5,7 +5,7 @@ namespace SER_Live_Monitoring.Tests;
 
 public class CANFrameDecoderTests
 {
-    private readonly CANFrameDecoder _decoder = new();
+    private readonly CANFrameDecoder _decoder = new(new SettingsService(TestSettingsPath.NewTempPath()));
 
     private static byte[] BuildFrame(short addr, byte[]? data = null)
     {
@@ -167,11 +167,29 @@ public class CANFrameDecoderTests
         // McBaseAddr's sub-address 0x00 isn't one of the cases DecodeMc understands (0x09/0x0e/0x0f/0x10/0x1b),
         // so it produces no named readings on its own - the heartbeat must still fire so "device alive"
         // tracking doesn't depend on which specific CAN message happens to arrive.
-        var readings = _decoder.Decode(BuildFrame(CanConfig.McBaseAddr));
+        var readings = _decoder.Decode(BuildFrame(0x500)); // McBaseAddr default
 
         var heartbeat = Assert.Single(readings);
         Assert.Equal("device_heartbeat", heartbeat.ReadingName);
         Assert.Equal("Mc", heartbeat.Tags["device"]);
+    }
+
+    [Fact]
+    public void IsMcFrame_AfterSettingsUpdated_UsesNewAddressImmediately()
+    {
+        // The whole point of settings-backed addresses is that a change on the settings page takes
+        // effect without recreating/restarting anything - CANFrameDecoder must re-read
+        // SettingsService.Current on every call rather than caching the addresses at construction.
+        var settings = new SettingsService(TestSettingsPath.NewTempPath());
+        var decoder = new CANFrameDecoder(settings);
+
+        Assert.False(decoder.IsMcFrame(0x123));
+
+        var updated = new AppSettings();
+        updated.CanAddresses.McBaseAddr = 0x100;
+        settings.Update(updated);
+
+        Assert.True(decoder.IsMcFrame(0x123));
     }
 
     [Fact]

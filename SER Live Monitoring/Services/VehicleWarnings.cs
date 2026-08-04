@@ -52,34 +52,22 @@ public static class VehicleWarnings
         ("mppt_12V_undervoltage", "12V rail under-voltage"),
     ];
 
-    private const double MaxCellVoltageSpreadV = 0.3;
-    private const double MaxCellTempC = 60;
-    private const double MaxMotorTempC = 90;
-    private const double MaxMpptTempC = 85;
-
-    // Below this, treat a panel as "not producing" (shade, night, parked) rather than "underperforming".
-    private const double MinActiveMpptPowerW = 20;
-
-    // Flag a panel once it makes less than this fraction of what the other active panels average.
-    private const double LowMpptPowerRatio = 0.3;
-
     private static readonly TimeSpan AvgWindow = TimeSpan.FromSeconds(15);
-    private static readonly TimeSpan CommTimeout = TimeSpan.FromSeconds(5);
 
-    public static List<Warning> Evaluate(DataManager data, bool isConnected)
+    public static List<Warning> Evaluate(DataManager data, bool isConnected, WarningThresholds thresholds)
     {
         var warnings = new List<Warning>();
 
         AddBatteryFaultFlags(data, warnings);
-        AddCellVoltageSpread(data, warnings);
-        AddTemperatureWarnings(data, warnings);
+        AddCellVoltageSpread(data, warnings, thresholds);
+        AddTemperatureWarnings(data, warnings, thresholds);
         AddMpptFaultFlags(data, warnings);
-        AddMpptUnderperformance(data, warnings);
+        AddMpptUnderperformance(data, warnings, thresholds);
 
         // While disconnected every device would trivially look "not responding" - that's already
         // covered by the connection status chip, so only run this check while actually connected.
         if (isConnected)
-            AddCommunicationLoss(data, warnings);
+            AddCommunicationLoss(data, warnings, thresholds);
 
         return warnings;
     }
@@ -93,7 +81,7 @@ public static class VehicleWarnings
         }
     }
 
-    private static void AddCellVoltageSpread(DataManager data, List<Warning> warnings)
+    private static void AddCellVoltageSpread(DataManager data, List<Warning> warnings, WarningThresholds thresholds)
     {
         var min = data.GetLatestSingle("min_voltage");
         var max = data.GetLatestSingle("max_voltage");
@@ -101,29 +89,29 @@ public static class VehicleWarnings
             return;
 
         var spread = max.Value - min.Value;
-        if (spread > MaxCellVoltageSpreadV)
-            warnings.Add(new Warning($"Cell voltage spread {spread:0.###} V exceeds {MaxCellVoltageSpreadV} V", WarningLevel.Warning));
+        if (spread > thresholds.MaxCellVoltageSpreadV)
+            warnings.Add(new Warning($"Cell voltage spread {spread:0.###} V exceeds {thresholds.MaxCellVoltageSpreadV} V", WarningLevel.Warning));
     }
 
-    private static void AddTemperatureWarnings(DataManager data, List<Warning> warnings)
+    private static void AddTemperatureWarnings(DataManager data, List<Warning> warnings, WarningThresholds thresholds)
     {
         var cellTemp = data.GetLatestSingle("max_temp");
-        if (cellTemp is not null && cellTemp.Value > MaxCellTempC)
-            warnings.Add(new Warning($"Battery cell temperature {cellTemp.Value:0.#} °C exceeds {MaxCellTempC} °C", WarningLevel.Error));
+        if (cellTemp is not null && cellTemp.Value > thresholds.MaxCellTempC)
+            warnings.Add(new Warning($"Battery cell temperature {cellTemp.Value:0.#} °C exceeds {thresholds.MaxCellTempC} °C", WarningLevel.Error));
 
         var fetTemp = data.GetLatest("mc_fet_temp");
-        if (fetTemp is not null && fetTemp.Value > MaxMotorTempC)
-            warnings.Add(new Warning($"Motor controller FET temperature {fetTemp.Value:0.#} °C exceeds {MaxMotorTempC} °C", WarningLevel.Error));
+        if (fetTemp is not null && fetTemp.Value > thresholds.MaxMotorTempC)
+            warnings.Add(new Warning($"Motor controller FET temperature {fetTemp.Value:0.#} °C exceeds {thresholds.MaxMotorTempC} °C", WarningLevel.Error));
 
         var motorTemp = data.GetLatest("mc_motor_temp");
-        if (motorTemp is not null && motorTemp.Value > MaxMotorTempC)
-            warnings.Add(new Warning($"Motor temperature {motorTemp.Value:0.#} °C exceeds {MaxMotorTempC} °C", WarningLevel.Error));
+        if (motorTemp is not null && motorTemp.Value > thresholds.MaxMotorTempC)
+            warnings.Add(new Warning($"Motor temperature {motorTemp.Value:0.#} °C exceeds {thresholds.MaxMotorTempC} °C", WarningLevel.Error));
 
         for (var i = 1; i <= 4; i++)
         {
             var mosfetTemp = data.GetLatest("mppt_mosfet_temp", ("mppt_id", i.ToString()));
-            if (mosfetTemp is not null && mosfetTemp.Value > MaxMpptTempC)
-                warnings.Add(new Warning($"MPPT {i} MOSFET temperature {mosfetTemp.Value:0.#} °C exceeds {MaxMpptTempC} °C", WarningLevel.Warning));
+            if (mosfetTemp is not null && mosfetTemp.Value > thresholds.MaxMpptTempC)
+                warnings.Add(new Warning($"MPPT {i} MOSFET temperature {mosfetTemp.Value:0.#} °C exceeds {thresholds.MaxMpptTempC} °C", WarningLevel.Warning));
         }
     }
 
@@ -139,7 +127,7 @@ public static class VehicleWarnings
         }
     }
 
-    private static void AddMpptUnderperformance(DataManager data, List<Warning> warnings)
+    private static void AddMpptUnderperformance(DataManager data, List<Warning> warnings, WarningThresholds thresholds)
     {
         var powers = new[]
         {
@@ -151,22 +139,24 @@ public static class VehicleWarnings
 
         for (var i = 0; i < powers.Length; i++)
         {
-            var others = powers.Where((p, idx) => idx != i && p > MinActiveMpptPowerW).ToList();
+            var others = powers.Where((p, idx) => idx != i && p > thresholds.MinActiveMpptPowerW).ToList();
             if (others.Count < 2)
                 continue; // not enough evidence the array is generally productive right now
 
             var othersAvg = others.Average();
-            if (powers[i] < othersAvg * LowMpptPowerRatio)
+            if (powers[i] < othersAvg * thresholds.LowMpptPowerRatio)
                 warnings.Add(new Warning($"MPPT {i + 1} producing {powers[i]:0.#} W while other panels average {othersAvg:0.#} W", WarningLevel.Warning));
         }
     }
 
-    private static void AddCommunicationLoss(DataManager data, List<Warning> warnings)
+    private static void AddCommunicationLoss(DataManager data, List<Warning> warnings, WarningThresholds thresholds)
     {
+        var timeout = TimeSpan.FromSeconds(thresholds.CommTimeoutSeconds);
+
         foreach (var (label, tag) in Devices)
         {
             var heartbeat = data.GetLatest("device_heartbeat", ("device", tag));
-            if (heartbeat is not null && DateTime.Now - heartbeat.Timestamp > CommTimeout)
+            if (heartbeat is not null && DateTime.Now - heartbeat.Timestamp > timeout)
                 warnings.Add(new Warning($"{label} not responding", WarningLevel.Error));
         }
     }

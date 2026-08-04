@@ -2,12 +2,13 @@
 @implements IDisposable
 @inject SerialPortMonitorService SerialService
 @inject DataManager DataManager
+@inject SettingsService SettingsService
 
 <PageTitle>Live Overview</PageTitle>
 
 <MudText Typo="Typo.h4" Class="mb-4">Live Overview</MudText>
 
-@{ var warnings = VehicleWarnings.Evaluate(DataManager, _isConnected); }
+@{ var warnings = VehicleWarnings.Evaluate(DataManager, _isConnected, SettingsService.Current.WarningThresholds); }
 
 @if (warnings.Count > 0)
 {

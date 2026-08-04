@@ -5,7 +5,7 @@ namespace SER_Live_Monitoring.Tests;
 
 public class DataManagerTests
 {
-    private readonly DataManager _dataManager = new(new SerialPortMonitorService(new CANFrameDecoder()));
+    private readonly DataManager _dataManager = new(new SerialPortMonitorService(new CANFrameDecoder(new SettingsService(TestSettingsPath.NewTempPath()))));
 
     private static Reading NewReading(DateTime ts, string name, double value, params (string Key, string Value)[] tags)
         => new() { Timestamp = ts, ReadingName = name, Value = value, Unit = "", Tags = tags.ToDictionary(t => t.Key, t => t.Value) };

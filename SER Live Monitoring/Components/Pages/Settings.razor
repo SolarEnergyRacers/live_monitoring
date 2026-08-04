@@ -1,0 +1,146 @@
+@page "/settings"
+@using System.Globalization
+@inject SettingsService SettingsService
+@inject ISnackbar Snackbar
+
+<PageTitle>Settings</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Settings</MudText>
+
+<MudGrid>
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-4 rounded-lg" Elevation="2">
+            <MudText Typo="Typo.subtitle1" Class="mb-1">CAN Bus Addresses</MudText>
+            <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary" Class="mb-3">
+                Standard 11-bit CAN base address per device, in hex (0x000-0x7FF).
+            </MudText>
+            <MudStack Spacing="3">
+                @foreach (var field in _addressFields)
+                {
+                    <MudTextField T="string" Label="@field.Label" @bind-Value="field.HexValue"
+                                  Error="@(field.ErrorText is not null)" ErrorText="@field.ErrorText"
+                                  Variant="Variant.Outlined" />
+                }
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-4 rounded-lg" Elevation="2">
+            <MudText Typo="Typo.subtitle1" Class="mb-3">Warning Thresholds</MudText>
+            <MudStack Spacing="3">
+                <MudNumericField T="double" Label="Max cell voltage spread" @bind-Value="_thresholds.MaxCellVoltageSpreadV" Min="0" Step="0.01" Adornment="Adornment.End" AdornmentText="V" Variant="Variant.Outlined" />
+                <MudNumericField T="double" Label="Max battery cell temperature" @bind-Value="_thresholds.MaxCellTempC" Min="0" Step="1" Adornment="Adornment.End" AdornmentText="°C" Variant="Variant.Outlined" />
+                <MudNumericField T="double" Label="Max motor/FET temperature" @bind-Value="_thresholds.MaxMotorTempC" Min="0" Step="1" Adornment="Adornment.End" AdornmentText="°C" Variant="Variant.Outlined" />
+                <MudNumericField T="double" Label="Max MPPT MOSFET temperature" @bind-Value="_thresholds.MaxMpptTempC" Min="0" Step="1" Adornment="Adornment.End" AdornmentText="°C" Variant="Variant.Outlined" />
+                <MudNumericField T="double" Label="Min active MPPT power" @bind-Value="_thresholds.MinActiveMpptPowerW" Min="0" Step="1" Adornment="Adornment.End" AdornmentText="W" Variant="Variant.Outlined"
+                                 HelperText="Below this, a panel is treated as idle rather than underperforming" />
+                <MudNumericField T="double" Label="Low MPPT power ratio" @bind-Value="_thresholds.LowMpptPowerRatio" Min="0" Max="1" Step="0.05" Variant="Variant.Outlined"
+                                 HelperText="Flag a panel once it makes less than this fraction of the other active panels' average" />
+                <MudNumericField T="double" Label="Device communication timeout" @bind-Value="_thresholds.CommTimeoutSeconds" Min="1" Step="1" Adornment="Adornment.End" AdornmentText="s" Variant="Variant.Outlined" />
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+<MudStack Row="true" Spacing="2" Class="mt-4">
+    <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" StartIcon="@Icons.Material.Filled.Save" OnClick="Save">Save</MudButton>
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="ResetToDefaults">Reset to Defaults</MudButton>
+</MudStack>
+
+@code {
+    private class AddressField
+    {
+        public required string Label { get; init; }
+        public required Func<CanAddressSettings, short> Get { get; init; }
+        public required Action<CanAddressSettings, short> Set { get; init; }
+        public string HexValue { get; set; } = "";
+        public string? ErrorText { get; set; }
+    }
+
+    private static readonly List<AddressField> FieldDefs =
+    [
+        new() { Label = "MPPT 1", Get = c => c.Mppt1Addr, Set = (c, v) => c.Mppt1Addr = v },
+        new() { Label = "MPPT 2", Get = c => c.Mppt2Addr, Set = (c, v) => c.Mppt2Addr = v },
+        new() { Label = "MPPT 3", Get = c => c.Mppt3Addr, Set = (c, v) => c.Mppt3Addr = v },
+        new() { Label = "MPPT 4", Get = c => c.Mppt4Addr, Set = (c, v) => c.Mppt4Addr = v },
+        new() { Label = "BMS", Get = c => c.BmsBaseAddr, Set = (c, v) => c.BmsBaseAddr = v },
+        new() { Label = "AC", Get = c => c.AcBaseAddr, Set = (c, v) => c.AcBaseAddr = v },
+        new() { Label = "DC", Get = c => c.DcBaseAddr, Set = (c, v) => c.DcBaseAddr = v },
+        new() { Label = "MC", Get = c => c.McBaseAddr, Set = (c, v) => c.McBaseAddr = v },
+    ];
+
+    private List<AddressField> _addressFields = [];
+    private WarningThresholds _thresholds = new();
+
+    protected override void OnInitialized() => LoadFromSettings(SettingsService.Current);
+
+    private void LoadFromSettings(AppSettings settings)
+    {
+        // Clone rather than bind directly to the live settings objects - CANFrameDecoder and
+        // VehicleWarnings read those concurrently, so mutating them keystroke-by-keystroke before
+        // Save is clicked would be both a UX surprise and a thread-safety bug.
+        _thresholds = new WarningThresholds
+        {
+            MaxCellVoltageSpreadV = settings.WarningThresholds.MaxCellVoltageSpreadV,
+            MaxCellTempC = settings.WarningThresholds.MaxCellTempC,
+            MaxMotorTempC = settings.WarningThresholds.MaxMotorTempC,
+            MaxMpptTempC = settings.WarningThresholds.MaxMpptTempC,
+            MinActiveMpptPowerW = settings.WarningThresholds.MinActiveMpptPowerW,
+            LowMpptPowerRatio = settings.WarningThresholds.LowMpptPowerRatio,
+            CommTimeoutSeconds = settings.WarningThresholds.CommTimeoutSeconds
+        };
+
+        _addressFields = FieldDefs.Select(f => new AddressField
+        {
+            Label = f.Label,
+            Get = f.Get,
+            Set = f.Set,
+            HexValue = "0x" + f.Get(settings.CanAddresses).ToString("X3")
+        }).ToList();
+    }
+
+    private void Save()
+    {
+        var addresses = new CanAddressSettings();
+        var hasError = false;
+
+        foreach (var field in _addressFields)
+        {
+            field.ErrorText = ParseHexAddress(field.HexValue, out var value);
+            if (field.ErrorText is not null)
+            {
+                hasError = true;
+                continue;
+            }
+
+            field.Set(addresses, value);
+        }
+
+        if (hasError)
+        {
+            Snackbar.Add("Fix the highlighted CAN addresses before saving", Severity.Error);
+            return;
+        }
+
+        SettingsService.Update(new AppSettings { CanAddresses = addresses, WarningThresholds = _thresholds });
+        Snackbar.Add("Settings saved", Severity.Success);
+    }
+
+    private static string? ParseHexAddress(string text, out short value)
+    {
+        var trimmed = text.Trim();
+        if (trimmed.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            trimmed = trimmed[2..];
+
+        if (!short.TryParse(trimmed, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value) || value is < 0 or > 0x7FF)
+        {
+            value = 0;
+            return "Enter a hex address between 0x000 and 0x7FF";
+        }
+
+        return null;
+    }
+
+    private void ResetToDefaults() => LoadFromSettings(new AppSettings());
+}

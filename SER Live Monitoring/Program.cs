@@ -12,12 +12,16 @@ builder.Services.AddRazorComponents()
 builder.Services.AddMudServices();
 builder.Services.AddApexCharts();
 
+builder.Services.AddSingleton<SettingsService>();
 builder.Services.AddSingleton<IDataDecoder, CANFrameDecoder>();
 builder.Services.AddSingleton<SerialPortMonitorService>();
 builder.Services.AddSingleton<DataManager>();
 //builder.Services.AddSingleton<IReadingCache>(sp => sp.GetRequiredService<DataManager>());
 
 var app = builder.Build();
+
+// Load settings from disk before anything else needs them.
+app.Services.GetRequiredService<SettingsService>();
 
 // Force the cache to instantiate now so it starts buffering readings immediately, not on first page visit.
 app.Services.GetRequiredService<DataManager>();
