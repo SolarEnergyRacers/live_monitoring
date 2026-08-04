@@ -181,4 +181,21 @@ public class CANFrameDecoderTests
 
         Assert.Empty(readings);
     }
+
+    [Fact]
+    public void Decode_CellVoltageFrame_TagsOnlyCmuAndCellNum()
+    {
+        // Regression test: Battery.razor's CellVoltage() looks up readings by exactly
+        // (cmu_num, cell_num). An extra tag here (like the old unused cell_index) silently breaks
+        // every individual cell voltage lookup, since DataManager.GetLatest matches the full tag set -
+        // while min/max keep working because they don't match by tags at all.
+        var data = new byte[8];
+        data[0] = 0xE4; data[1] = 0x0C; // 3300 raw (little-endian int16) -> 3.300V for cell 0
+
+        var readings = _decoder.Decode(BuildFrame(0x700 + 0x02, data)); // CMU0 voltages 1
+
+        var cellVoltage = readings.Single(r => r.ReadingName == "cell_voltage" && r.Tags["cell_num"] == "0");
+        Assert.Equal(3.300, cellVoltage.Value, 3);
+        Assert.Equal(new Dictionary<string, string> { ["cmu_num"] = "0", ["cell_num"] = "0" }, cellVoltage.Tags);
+    }
 }
