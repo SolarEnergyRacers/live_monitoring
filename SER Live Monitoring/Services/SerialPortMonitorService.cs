@@ -32,7 +32,7 @@ public class SerialPortMonitorService : IDisposable
 
     public static string[] GetAvailablePortNames() => SerialPort.GetPortNames();
 
-    public void Connect(string portName, int baudRate = 9600)
+    public void Connect(string portName, int baudRate = 115200)
     {
         Disconnect();
 
@@ -85,6 +85,11 @@ public class SerialPortMonitorService : IDisposable
 
     private void OnDataReceived(object sender, SerialDataReceivedEventArgs e)
     {
+        /*
+        TODO:   implement buffering for incomplete packets
+                Check for first 5 bits = 1
+        */
+
         if (_serialPort is not { IsOpen: true } port)
             return;
 
@@ -104,7 +109,7 @@ public class SerialPortMonitorService : IDisposable
             return;
         }
 
-        const int PacketSize = 13; // 12 data bytes + linefeed (0x0A)
+        const int PacketSize = 11; // 2 addr bytes + 8 data bytes + linefeed (0x0A)
 
         List<byte[]> packets = [];
 

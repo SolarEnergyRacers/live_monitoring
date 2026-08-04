@@ -9,7 +9,7 @@ public class CANFrameDecoder : IDataDecoder
     {
         short addr = (short)(BinaryPrimitives.ReadInt16BigEndian(rawLine.AsSpan(0, 2)) & 0x7FF);
         byte[] data = rawLine[2..];
-        var timestamp = DateTime.UtcNow;
+        var timestamp = DateTime.Now;
 
         if (IsBmsFrame(addr)) return DecodeBms(addr, data, timestamp);
         if (IsMpptFrame(addr)) return DecodeMppt(addr, data, timestamp);

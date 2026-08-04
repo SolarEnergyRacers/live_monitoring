@@ -51,6 +51,7 @@
         @if (!string.IsNullOrEmpty(SerialService.PortName))
         {
             <MudText>@SerialService.PortName @@ @_baudRate baud</MudText>
+            <MudText>Latest: @_latest?.Timestamp.ToString("HH:mm:ss.fff")</MudText>
         }
     </MudStack>
 
@@ -101,7 +102,7 @@
     private System.Threading.Timer? _uiRefreshTimer;
 
     private string? _selectedPort;
-    private int _baudRate = 9600;
+    private int _baudRate = 115200;
     private bool _isConnected => SerialService.Status == SerialConnectionStatus.Connected;
 
     private MudBlazor.Color StatusColor => SerialService.Status switch
