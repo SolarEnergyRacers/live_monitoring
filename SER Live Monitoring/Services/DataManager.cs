@@ -91,7 +91,9 @@ public class DataManager : IDisposable
         _serialService.ReadingReceived += OnReadingReceived;
     }
 
-    private void OnReadingReceived(List<Reading> readings)
+    // Public so tests can feed readings through the same path real serial data takes, without a
+    // live SerialPortMonitorService.
+    public void Ingest(List<Reading> readings)
     {
         lock (_lock)
         {
@@ -100,7 +102,11 @@ public class DataManager : IDisposable
 
             UpdateTimeseries(readings);
         }
+    }
 
+    private void OnReadingReceived(List<Reading> readings)
+    {
+        Ingest(readings);
         ReadingsAdded?.Invoke(readings);
     }
 

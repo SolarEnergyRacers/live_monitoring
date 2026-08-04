@@ -7,6 +7,22 @@
 
 <MudText Typo="Typo.h4" Class="mb-4">Live Overview</MudText>
 
+@{ var warnings = VehicleWarnings.Evaluate(DataManager, _isConnected); }
+
+@if (warnings.Count > 0)
+{
+    <MudStack Spacing="1" Class="mb-4">
+        @foreach (var warning in warnings)
+        {
+            <MudAlert Severity="@ToSeverity(warning.Level)" Dense="true">@warning.Message</MudAlert>
+        }
+    </MudStack>
+}
+else
+{
+    <MudAlert Severity="Severity.Success" Dense="true" Class="mb-4">No active warnings</MudAlert>
+}
+
 <MudGrid>
     <MudItem xs="12" md="8">
         <MudGrid>
@@ -83,7 +99,7 @@
         <MudPaper Class="pa-4 rounded-lg mt-4" Elevation="2">
             <MudText Typo="Typo.subtitle1" Class="mb-3">Device Activity</MudText>
             <MudGrid Spacing="2">
-                @foreach (var (label, tag) in Devices)
+                @foreach (var (label, tag) in VehicleWarnings.Devices)
                 {
                     <MudItem xs="6">
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
@@ -120,20 +136,6 @@
         new("MPPT 4", Icons.Material.Filled.SolarPower, MudBlazor.Color.Warning, "#FF8F00", ChartSeries.Mppt4, " W"),
     ];
 
-    // (Label, device tag) - the tag matches the "device" value CANFrameDecoder stamps on every
-    // decoded frame's "device_heartbeat" reading.
-    private static readonly (string Label, string Tag)[] Devices =
-    [
-        ("MC", "Mc"),
-        ("BMS", "Bms"),
-        ("MPPT1", "Mppt1"),
-        ("MPPT2", "Mppt2"),
-        ("MPPT3", "Mppt3"),
-        ("MPPT4", "Mppt4"),
-        ("AC", "Ac"),
-        ("DC", "Dc"),
-    ];
-
     private List<string> _availablePorts = [];
     private System.Threading.Timer? _uiRefreshTimer;
 
@@ -156,6 +158,12 @@
         SerialConnectionStatus.Connected => MudBlazor.Color.Success,
         SerialConnectionStatus.Error => MudBlazor.Color.Error,
         _ => MudBlazor.Color.Default
+    };
+
+    private static Severity ToSeverity(WarningLevel level) => level switch
+    {
+        WarningLevel.Error => Severity.Error,
+        _ => Severity.Warning
     };
 
     private record StatDef(string Title, string Icon, MudBlazor.Color AccentColor, string ChartColor, ChartSeries Series, string Unit);
