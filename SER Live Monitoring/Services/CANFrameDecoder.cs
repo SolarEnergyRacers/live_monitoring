@@ -107,8 +107,11 @@ public class CANFrameDecoder : IDataDecoder
         }
         else if (sub == 0xFA) // Pack voltage & current
         {
-            readings.Add(NewReading(ts, "batt_volt", GetInt(data, 32, false, 0) / 1000.0, "V"));
-            readings.Add(NewReading(ts, "batt_curr", GetInt(data, 32, true, 1) / 1000.0, "A"));
+            double batteryVoltage = GetInt(data, 32, false, 0) / 1000.0;
+            double batteryCurrent = GetInt(data, 32, true, 1) / 1000.0;
+            readings.Add(NewReading(ts, "batt_volt", batteryVoltage, "V"));
+            readings.Add(NewReading(ts, "batt_curr", batteryCurrent, "A"));
+            readings.Add(NewReading(ts, "calc_batt_power", batteryCurrent * batteryVoltage, "W"));
         }
         else if (sub == 0xFD) // Extended pack status
         {
@@ -140,6 +143,7 @@ public class CANFrameDecoder : IDataDecoder
             var m when m == CanConfig.Mppt1Addr => "1",
             var m when m == CanConfig.Mppt2Addr => "2",
             var m when m == CanConfig.Mppt3Addr => "3",
+            var m when m == CanConfig.Mppt4Addr => "4",
             _ => $"Err:{addr}"
         };
         var tag = ("mppt_id", mpptId);
@@ -149,12 +153,18 @@ public class CANFrameDecoder : IDataDecoder
         switch (addr & 0xF)
         {
             case 0x0: // Input
-                readings.Add(NewReading(ts, "mppt_in_voltage", GetFloat(data, 0, false), "V", tag));
-                readings.Add(NewReading(ts, "mppt_in_current", GetFloat(data, 1, false), "A", tag));
+                float mpptInVoltage = GetFloat(data, 0, false);
+                float mpptInCurrent = GetFloat(data, 1, false);
+                readings.Add(NewReading(ts, "mppt_in_voltage", mpptInVoltage, "V", tag));
+                readings.Add(NewReading(ts, "mppt_in_current", mpptInCurrent, "A", tag));
+                readings.Add(NewReading(ts, "calc_mppt_in_power", mpptInVoltage * mpptInCurrent, "W", tag));
                 break;
             case 0x1: // Output
-                readings.Add(NewReading(ts, "mppt_out_voltage", GetFloat(data, 0, false), "V", tag));
-                readings.Add(NewReading(ts, "mppt_out_current", GetFloat(data, 1, false), "A", tag));
+                float mpptOutVoltage = GetFloat(data, 0, false);
+                float mpptOutCurrent = GetFloat(data, 1, false);
+                readings.Add(NewReading(ts, "mppt_out_voltage", mpptOutVoltage, "V", tag));
+                readings.Add(NewReading(ts, "mppt_out_current", mpptOutCurrent, "A", tag));
+                readings.Add(NewReading(ts, "calc_mppt_out_power", mpptOutVoltage * mpptOutCurrent, "W", tag));
                 break;
             case 0x2: // Temps
                 readings.Add(NewReading(ts, "mppt_mosfet_temp", GetFloat(data, 0, false), "°C", tag));
