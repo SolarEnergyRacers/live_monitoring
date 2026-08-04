@@ -3,107 +3,123 @@
 @inject SerialPortMonitorService SerialService
 @inject DataManager DataManager
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Live Overview</PageTitle>
 
 <MudText Typo="Typo.h4" Class="mb-4">Live Overview</MudText>
 
-<MudPaper Class="pa-4 mb-4" Elevation="2">
-    <MudGrid>
-        <MudItem xs="12" sm="4">
-            <MudSelect T="string" Label="COM Port" @bind-Value="_selectedPort" Disabled="_isConnected">
-                @foreach (var port in _availablePorts)
-                {
-                    <MudSelectItem T="string" Value="@port">@port</MudSelectItem>
-                }
-            </MudSelect>
-        </MudItem>
-        <MudItem xs="12" sm="3">
-            <MudSelect T="int" Label="Baud Rate" @bind-Value="_baudRate" Disabled="_isConnected">
-                @foreach (var baud in _baudRates)
-                {
-                    <MudSelectItem T="int" Value="@baud">@baud</MudSelectItem>
-                }
-            </MudSelect>
-        </MudItem>
-        <MudItem xs="12" sm="2">
-            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshPorts" Disabled="_isConnected">
-                Refresh
-            </MudButton>
-        </MudItem>
-        <MudItem xs="12" sm="3">
-            @if (_isConnected)
+<MudGrid>
+    <MudItem xs="12" md="8">
+        <MudGrid>
+            @foreach (var stat in MainStats)
             {
-                <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Error" StartIcon="@Icons.Material.Filled.LinkOff" OnClick="Disconnect" FullWidth="true">
-                    Disconnect
-                </MudButton>
+                <MudItem xs="12" sm="6" md="4">
+                    <StatChartTile Title="@stat.Title" Icon="@stat.Icon" AccentColor="@stat.AccentColor"
+                                   ChartColor="@stat.ChartColor" Value="@ValueText(stat)" Series="@SparkSeries(stat)" />
+                </MudItem>
             }
-            else
+        </MudGrid>
+
+        <MudText Typo="Typo.subtitle1" Class="mt-4 mb-2">Solar Power by MPPT</MudText>
+        <MudGrid>
+            @foreach (var stat in MpptStats)
             {
-                <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" StartIcon="@Icons.Material.Filled.Link" OnClick="Connect" Disabled="string.IsNullOrEmpty(_selectedPort)" FullWidth="true">
-                    Connect
-                </MudButton>
+                <MudItem xs="6" sm="3">
+                    <StatChartTile Title="@stat.Title" Icon="@stat.Icon" AccentColor="@stat.AccentColor"
+                                   ChartColor="@stat.ChartColor" Value="@ValueText(stat)" Series="@SparkSeries(stat)" />
+                </MudItem>
             }
-        </MudItem>
-    </MudGrid>
+        </MudGrid>
+    </MudItem>
 
-    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-3">
-        <MudChip T="string" Color="@StatusColor" Variant="Variant.Filled">@SerialService.Status</MudChip>
-        @if (!string.IsNullOrEmpty(SerialService.PortName))
-        {
-            <MudText>@SerialService.PortName @@ @_baudRate baud</MudText>
-            <MudText>Latest: @_latest?.Timestamp.ToString("HH:mm:ss.fff")</MudText>
-        }
-    </MudStack>
+    <MudItem xs="12" md="4">
+        <MudPaper Class="pa-4 rounded-lg" Elevation="2">
+            <MudText Typo="Typo.subtitle1" Class="mb-3">Serial Connection</MudText>
+            <MudStack Spacing="3">
+                <MudSelect T="string" Label="COM Port" @bind-Value="_selectedPort" Disabled="_isConnected">
+                    @foreach (var port in _availablePorts)
+                    {
+                        <MudSelectItem T="string" Value="@port">@port</MudSelectItem>
+                    }
+                </MudSelect>
 
-    @if (!string.IsNullOrEmpty(SerialService.LastError))
-    {
-        <MudAlert Severity="Severity.Error" Class="mt-3" Dense="true">@SerialService.LastError</MudAlert>
-    }
-</MudPaper>
+                <MudSelect T="int" Label="Baud Rate" @bind-Value="_baudRate" Disabled="_isConnected">
+                    @foreach (var baud in _baudRates)
+                    {
+                        <MudSelectItem T="int" Value="@baud">@baud</MudSelectItem>
+                    }
+                </MudSelect>
 
-<MudPaper Class="pa-4 mb-4" Elevation="2">
-    <MudText Typo="Typo.subtitle1">Latest Reading</MudText>
-    @if (_latest is null)
-    {
-        <MudText Typo="Typo.body2" Color="MudBlazor.Color.Secondary">No data received yet.</MudText>
-    }
-    else
-    {
-        <MudText Typo="Typo.h3">@_latest.Value.ToString("0.###") <MudText Typo="Typo.h5" Style="display:inline">@_latest.Unit</MudText></MudText>
-        <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">@_latest.Timestamp.ToString("HH:mm:ss.fff")</MudText>
-    }
-</MudPaper>
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshPorts" Disabled="_isConnected" FullWidth="true">
+                    Refresh Ports
+                </MudButton>
 
-<MudPaper Class="pa-4" Elevation="2">
-    <MudText Typo="Typo.subtitle1" Class="mb-2">Recent Readings</MudText>
-    <MudTable Items="_history" Dense="true" Hover="true" FixedHeader="true" Height="400px">
-        <HeaderContent>
-            <MudTh>Time</MudTh>
-            <MudTh>Name</MudTh>
-            <MudTh>Value</MudTh>
-            <MudTh>Unit</MudTh>
-        </HeaderContent>
-        <RowTemplate>
-            <MudTd DataLabel="Time">@context.Timestamp.ToString("HH:mm:ss.fff")</MudTd>
-            <MudTd DataLabel="Name">@context.ReadingName</MudTd>
-            <MudTd DataLabel="Value">@context.Value.ToString("0.###")</MudTd>
-            <MudTd DataLabel="Unit">@context.Unit</MudTd>
-        </RowTemplate>
-    </MudTable>
-</MudPaper>
+                @if (_isConnected)
+                {
+                    <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Error" StartIcon="@Icons.Material.Filled.LinkOff" OnClick="Disconnect" FullWidth="true">
+                        Disconnect
+                    </MudButton>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" StartIcon="@Icons.Material.Filled.Link" OnClick="Connect" Disabled="string.IsNullOrEmpty(_selectedPort)" FullWidth="true">
+                        Connect
+                    </MudButton>
+                }
 
-    @code {
-    private const int MaxHistory = 200;
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudIcon Icon="@Icons.Material.Filled.Circle" Size="MudBlazor.Size.Small" Color="@DotColor" />
+                    <MudChip T="string" Color="@StatusColor" Variant="Variant.Filled">@SerialService.Status</MudChip>
+                </MudStack>
+
+                @if (!string.IsNullOrEmpty(SerialService.PortName))
+                {
+                    <MudText Typo="Typo.body2">@SerialService.PortName @@ @_baudRate baud</MudText>
+                }
+
+                @if (!string.IsNullOrEmpty(SerialService.LastError))
+                {
+                    <MudAlert Severity="Severity.Error" Dense="true">@SerialService.LastError</MudAlert>
+                }
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private static readonly TimeSpan AvgWindow = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan SparkWindow = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan DataFlowingThreshold = TimeSpan.FromSeconds(2);
     private static readonly int[] _baudRates = [9600, 19200, 38400, 57600, 115200];
 
+    private static readonly StatDef[] MainStats =
+    [
+        new("Speed", Icons.Material.Filled.Speed, MudBlazor.Color.Info, "#42A5F5", ChartSeries.Speed, ""),
+        new("Solar Power", Icons.Material.Filled.WbSunny, MudBlazor.Color.Warning, "#FFC107", ChartSeries.SolarTotal, " W"),
+        new("Motor Power", Icons.Material.Filled.ElectricBolt, MudBlazor.Color.Tertiary, "#FF7043", ChartSeries.MotorPower, " W"),
+        new("Battery Power", Icons.Material.Filled.Power, MudBlazor.Color.Success, "#26A69A", ChartSeries.BatteryPower, " W"),
+        new("Battery Voltage", Icons.Material.Filled.Bolt, MudBlazor.Color.Primary, "#7E57C2", ChartSeries.BatteryVoltage, " V"),
+    ];
+
+    private static readonly StatDef[] MpptStats =
+    [
+        new("MPPT 1", Icons.Material.Filled.SolarPower, MudBlazor.Color.Warning, "#FFC107", ChartSeries.Mppt1, " W"),
+        new("MPPT 2", Icons.Material.Filled.SolarPower, MudBlazor.Color.Warning, "#FFB300", ChartSeries.Mppt2, " W"),
+        new("MPPT 3", Icons.Material.Filled.SolarPower, MudBlazor.Color.Warning, "#FFA000", ChartSeries.Mppt3, " W"),
+        new("MPPT 4", Icons.Material.Filled.SolarPower, MudBlazor.Color.Warning, "#FF8F00", ChartSeries.Mppt4, " W"),
+    ];
+
     private List<string> _availablePorts = [];
-    private List<Reading> _history = new();
-    private Reading? _latest;
     private System.Threading.Timer? _uiRefreshTimer;
 
     private string? _selectedPort;
     private int _baudRate = 115200;
     private bool _isConnected => SerialService.Status == SerialConnectionStatus.Connected;
+
+    private bool _blinkPhase;
+    private DateTime _lastDataAt = DateTime.MinValue;
+
+    private bool DataFlowing => _isConnected && DateTime.Now - _lastDataAt < DataFlowingThreshold;
+    private MudBlazor.Color DotColor => DataFlowing && _blinkPhase ? MudBlazor.Color.Success : MudBlazor.Color.Default;
 
     private MudBlazor.Color StatusColor => SerialService.Status switch
     {
@@ -111,6 +127,16 @@
         SerialConnectionStatus.Error => MudBlazor.Color.Error,
         _ => MudBlazor.Color.Default
     };
+
+    private record StatDef(string Title, string Icon, MudBlazor.Color AccentColor, string ChartColor, ChartSeries Series, string Unit);
+
+    private string ValueText(StatDef stat)
+    {
+        var avg = DataManager.GetAverage(stat.Series, AvgWindow);
+        return avg is null ? "--" : avg.Value.ToString("0.#") + stat.Unit;
+    }
+
+    private List<double> SparkSeries(StatDef stat) => DataManager.GetSeries(stat.Series, SparkWindow);
 
     protected override void OnInitialized()
     {
@@ -120,7 +146,11 @@
 
         // redraw ui at 2Hz, to prevent redrawing for every CAN frame received
         _uiRefreshTimer = new System.Threading.Timer(
-            _ => InvokeAsync(StateHasChanged),
+            _ =>
+            {
+                _blinkPhase = !_blinkPhase;
+                InvokeAsync(StateHasChanged);
+            },
             null,
             TimeSpan.FromMilliseconds(500),
             TimeSpan.FromMilliseconds(500));
@@ -143,14 +173,7 @@
 
     private void OnReadingsAdded(List<Reading> readings)
     {
-        _ = InvokeAsync(() =>
-        {
-            _history.InsertRange(0,readings);
-            if (_history.Count > MaxHistory)
-                _history.RemoveRange(0, _history.Count - MaxHistory);
-            
-            _latest = readings[0];
-        });
+        _ = InvokeAsync(() => _lastDataAt = DateTime.Now);
     }
 
     private void OnStatusChanged()

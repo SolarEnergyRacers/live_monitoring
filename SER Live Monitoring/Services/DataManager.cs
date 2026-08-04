@@ -47,12 +47,25 @@ public class TimeSeries {
 }
 
 
+public enum ChartSeries
+{
+    Speed,
+    BatteryVoltage,
+    BatteryPower,
+    MotorPower,
+    SolarTotal,
+    Mppt1,
+    Mppt2,
+    Mppt3,
+    Mppt4
+}
+
 /// <summary>
 /// Buffers the most recently decoded reading for every (name, tag-set) combination so the UI can
 /// pull current state (e.g. the battery dashboard) without replaying history. Subscribes to
 /// SerialPortMonitorService.ReadingReceived and is the single source of truth for the UI.
 /// </summary>
-/// 
+///
 public class DataManager : IDisposable
 {
     private readonly SerialPortMonitorService _serialService;
@@ -60,13 +73,14 @@ public class DataManager : IDisposable
     private readonly Dictionary<string, Reading> _latestByKey = new();
 
     private readonly TimeSeries _vCar = new();
-    private readonly TimeSeries _UBat = new();
     private readonly TimeSeries _PMppt1 = new();
     private readonly TimeSeries _PMppt2 = new();
     private readonly TimeSeries _PMppt3 = new();
     private readonly TimeSeries _PMppt4 = new();
     private readonly TimeSeries _IMotor = new();
     private readonly TimeSeries _UMotor = new();
+    private readonly TimeSeries _PMotor = new();
+    private readonly TimeSeries _UBattery = new();
     private readonly TimeSeries _PBattery = new();
 
     public event Action<List<Reading>>? ReadingsAdded;
@@ -120,20 +134,95 @@ public class DataManager : IDisposable
                     break;
                 case "mc_curr_in":
                     _IMotor.AddAndInterpolate(reading);
+                    UpdateMotorPower(reading.Timestamp);
                     break;
                 case "mc_volt_in":
                     _UMotor.AddAndInterpolate(reading);
+                    UpdateMotorPower(reading.Timestamp);
                     break;
-                case "calc_battery_power":
+                case "calc_batt_power":
                     _PBattery.AddAndInterpolate(reading);
                     break;
                 case "batt_volt":
-                    _UBat.AddAndInterpolate(reading);
+                    _UBattery.AddAndInterpolate(reading);
                     break;
                 default:
                     break;
             }
         }
+    }
+
+    // mc_curr_in and mc_volt_in arrive in separate CAN frames, so motor power is approximated from
+    // whichever value last arrived for the other half of the pair. Must only be called while _lock is held.
+    private void UpdateMotorPower(DateTime timestamp)
+    {
+        if (_latestByKey.GetValueOrDefault(BuildKey("mc_curr_in", Array.Empty<(string Key, string Value)>())) is not { } current
+            || _latestByKey.GetValueOrDefault(BuildKey("mc_volt_in", Array.Empty<(string Key, string Value)>())) is not { } voltage)
+            return;
+
+        _PMotor.AddAndInterpolate(new Reading
+        {
+            Timestamp = timestamp,
+            ReadingName = "calc_motor_power",
+            Value = current.Value * voltage.Value,
+            Unit = "W",
+            Tags = new()
+        });
+    }
+
+    public List<double> GetSeries(ChartSeries series, TimeSpan window)
+    {
+        lock (_lock)
+        {
+            var end = DateTime.Now;
+            var start = end - window;
+
+            return series switch
+            {
+                ChartSeries.Speed => _vCar.getTimeframe(start, end),
+                ChartSeries.BatteryVoltage => _UBattery.getTimeframe(start, end),
+                ChartSeries.BatteryPower => _PBattery.getTimeframe(start, end),
+                ChartSeries.MotorPower => _PMotor.getTimeframe(start, end),
+                ChartSeries.Mppt1 => _PMppt1.getTimeframe(start, end),
+                ChartSeries.Mppt2 => _PMppt2.getTimeframe(start, end),
+                ChartSeries.Mppt3 => _PMppt3.getTimeframe(start, end),
+                ChartSeries.Mppt4 => _PMppt4.getTimeframe(start, end),
+                ChartSeries.SolarTotal => SumRightAligned(
+                    _PMppt1.getTimeframe(start, end),
+                    _PMppt2.getTimeframe(start, end),
+                    _PMppt3.getTimeframe(start, end),
+                    _PMppt4.getTimeframe(start, end)),
+                _ => new()
+            };
+        }
+    }
+
+    public double? GetAverage(ChartSeries series, TimeSpan window)
+    {
+        var points = GetSeries(series, window);
+        return points.Count == 0 ? null : points.Average();
+    }
+
+    // Sums timeseries slices that may differ in length (e.g. an MPPT with no data returns an empty
+    // slice), aligning them on their most recent sample since that's always where they agree.
+    private static List<double> SumRightAligned(params List<double>[] series)
+    {
+        int maxLen = series.Max(s => s.Count);
+        var result = new List<double>(maxLen);
+
+        for (int i = 0; i < maxLen; i++)
+        {
+            double sum = 0;
+            foreach (var s in series)
+            {
+                int idx = s.Count - maxLen + i;
+                if (idx >= 0)
+                    sum += s[idx];
+            }
+            result.Add(sum);
+        }
+
+        return result;
     }
 
     public Reading? GetLatest(string readingName, params (string Key, string Value)[] tags)
