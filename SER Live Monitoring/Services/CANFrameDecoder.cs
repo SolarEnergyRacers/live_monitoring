@@ -23,7 +23,7 @@ public class CANFrameDecoder : IDataDecoder
     public bool IsMpptFrame(short addr)
     {
         var masked = addr & 0xFF0;
-        return masked == CanConfig.Mppt1Addr || masked == CanConfig.Mppt2Addr || masked == CanConfig.Mppt3Addr;
+        return masked == CanConfig.Mppt1Addr || masked == CanConfig.Mppt2Addr || masked == CanConfig.Mppt3Addr || masked == CanConfig.Mppt4Addr;
     }
 
     public bool IsBmsFrame(short addr)
