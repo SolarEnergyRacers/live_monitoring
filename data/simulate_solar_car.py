@@ -74,6 +74,9 @@ MPPT_UNDERPERF_HOLD_SECONDS = 20.0
 # ...and comm-loss warnings only fire once a device has been silent for 5s.
 COMM_TIMEOUT_HOLD_SECONDS = 7.0
 FAULT_IDLE_SECONDS = (9.0, 11.0)
+# Cap concurrent faults so the console stays readable and BMS/MPPT frames don't all
+# blank out at once from stacked comm-loss picks.
+MAX_CONCURRENT_FAULTS = 3
 
 
 def clamp(value, lo, hi):
@@ -124,28 +127,29 @@ class SolarCarState:
 
         self.ac_lifesign = 0
 
-        # Active fault overrides; None/False = normal operation. Set by the
-        # scheduler in main() via the activate/deactivate closures from pick_fault().
-        self.fault_battery_bit = None       # key into BATTERY_FD_FAULT_BITS / BATTERY_PRECHARGE_FAULT_BITS
+        # Active fault overrides; empty/False = normal operation. Multiple faults can be
+        # active at once, so each is a set of independent instances. Set by the scheduler
+        # in main() via the activate/deactivate closures from pick_fault().
+        self.fault_battery_bits = set()     # keys into BATTERY_FD_FAULT_BITS / BATTERY_PRECHARGE_FAULT_BITS
         self.fault_cell_spread = False
-        self.fault_cmu_overtemp = None      # cmu index 0-3
-        self.fault_motor_overtemp = None    # "fet" or "motor"
-        self.fault_mppt_overtemp = None     # mppt id 1-4
-        self.fault_mppt_status_bit = None   # (mppt_id, key into MPPT_STATUS_FLAG_BITS)
-        self.fault_mppt_underperf = None    # mppt id 1-4
-        self.fault_comm_loss = None         # one of DEVICE_TAGS
+        self.fault_cmu_overtemp = set()     # cmu indices 0-3
+        self.fault_motor_overtemp = set()   # subset of {"fet", "motor"}
+        self.fault_mppt_overtemp = set()    # mppt ids 1-4
+        self.fault_mppt_status_bits = set()  # (mppt_id, key into MPPT_STATUS_FLAG_BITS)
+        self.fault_mppt_underperf = set()   # mppt ids 1-4
+        self.fault_comm_loss = set()        # subset of DEVICE_TAGS
 
     def step(self):
         self.irradiance = walk(self.irradiance, 0.05, 0.15, 1.0)
         for mppt_id, capacity in MPPT_MAX_CURRENT.items():
-            if mppt_id == self.fault_mppt_underperf:
+            if mppt_id in self.fault_mppt_underperf:
                 self.mppt_current[mppt_id] = approach(self.mppt_current[mppt_id], 0.05, 0.5, 0.02, 0, capacity)
                 continue
             target = self.irradiance * capacity
             self.mppt_current[mppt_id] = approach(self.mppt_current[mppt_id], target, 0.3, 0.05, 0, capacity)
 
         for mppt_id in MPPT_ADDR:
-            is_faulted = mppt_id == self.fault_mppt_overtemp
+            is_faulted = mppt_id in self.fault_mppt_overtemp
             temp_target = 92.0 if is_faulted else 30.0 + self.irradiance * 15.0
             temp_rate = FAULT_TEMP_RATE if is_faulted else 0.15
             self.mppt_mosfet_temp[mppt_id] = approach(self.mppt_mosfet_temp[mppt_id], temp_target, temp_rate, 0.3, 15, 100)
@@ -158,10 +162,10 @@ class SolarCarState:
         drag_current = 2.0 + (self.speed / 100.0) ** 2 * 20.0
         self.motor_in_current = approach(self.motor_in_current, drag_current, 0.3, 0.5, 0, 30)
 
-        fet_target = 95.0 if self.fault_motor_overtemp == "fet" else 25.0 + self.motor_in_current * 1.2
-        motor_target = 95.0 if self.fault_motor_overtemp == "motor" else 20.0 + self.motor_in_current * 1.5
-        fet_rate = FAULT_TEMP_RATE if self.fault_motor_overtemp == "fet" else 0.2
-        motor_rate = FAULT_TEMP_RATE if self.fault_motor_overtemp == "motor" else 0.15
+        fet_target = 95.0 if "fet" in self.fault_motor_overtemp else 25.0 + self.motor_in_current * 1.2
+        motor_target = 95.0 if "motor" in self.fault_motor_overtemp else 20.0 + self.motor_in_current * 1.5
+        fet_rate = FAULT_TEMP_RATE if "fet" in self.fault_motor_overtemp else 0.2
+        motor_rate = FAULT_TEMP_RATE if "motor" in self.fault_motor_overtemp else 0.15
         self.fet_temp = approach(self.fet_temp, fet_target, fet_rate, 0.3, 15, 100)
         self.motor_temp = approach(self.motor_temp, motor_target, motor_rate, 0.3, 15, 100)
         self.tacho = (self.tacho + int(self.speed * 6)) & 0x7FFFFFFF
@@ -176,7 +180,7 @@ class SolarCarState:
 
         cmu_temp_target = 24.0 + abs(self.net_current) * 0.3
         self.cell_temp = [
-            68.0 if i == self.fault_cmu_overtemp else approach(t, cmu_temp_target, 0.05, 0.2, 15, 55)
+            68.0 if i in self.fault_cmu_overtemp else approach(t, cmu_temp_target, 0.05, 0.2, 15, 55)
             for i, t in enumerate(self.cell_temp)
         ]
         self.pcb_temp = [approach(t, 26.0 + abs(self.net_current) * 0.3, 0.08, 0.2, 15, 60) for t in self.pcb_temp]
@@ -192,7 +196,7 @@ class SolarCarState:
         packets = []
 
         def active(device_tag):
-            return self.fault_comm_loss != device_tag
+            return device_tag not in self.fault_comm_loss
 
         # Speed
         if active("Dc"):
@@ -220,9 +224,10 @@ class SolarCarState:
             packets.append(build_packet(addr_base | 0x2, temp_data))
 
             status_byte3 = 0
-            if self.fault_mppt_status_bit is not None and self.fault_mppt_status_bit[0] == mppt_id:
-                bit, _ = MPPT_STATUS_FLAG_BITS[self.fault_mppt_status_bit[1]]
-                status_byte3 |= 1 << bit
+            for fault_mppt_id, name in self.fault_mppt_status_bits:
+                if fault_mppt_id == mppt_id:
+                    bit, _ = MPPT_STATUS_FLAG_BITS[name]
+                    status_byte3 |= 1 << bit
             status_data = bytes([0, 0, 0, status_byte3, 0, 1, 0, 0])  # byte5 bit0 = mppt_is_on
             packets.append(build_packet(addr_base | 0x5, status_data))
 
@@ -267,8 +272,9 @@ class SolarCarState:
         # Precharge status / contactors (contactors closed, run state; voltage across a
         # closed contactor is near-zero, unlike the pack voltage it gates)
         prec_flags = (1 << 3) | (1 << 4) | (1 << 7)  # output_cont_1/2/3 closed
-        if self.fault_battery_bit in BATTERY_PRECHARGE_FAULT_BITS:
-            prec_flags |= 1 << BATTERY_PRECHARGE_FAULT_BITS[self.fault_battery_bit][0]
+        for name in self.fault_battery_bits:
+            if name in BATTERY_PRECHARGE_FAULT_BITS:
+                prec_flags |= 1 << BATTERY_PRECHARGE_FAULT_BITS[name][0]
         cont_voltage = random.uniform(0.05, 0.3)
         precharge_data = struct.pack("<BBHHBB", prec_flags, PREC_STATE_RUN,
                                       int(cont_voltage * 1000), 0, 1, 0)
@@ -293,8 +299,9 @@ class SolarCarState:
 
         # Extended pack status
         status_bits = 0
-        if self.fault_battery_bit in BATTERY_FD_FAULT_BITS:
-            status_bits = 1 << BATTERY_FD_FAULT_BITS[self.fault_battery_bit][0]
+        for name in self.fault_battery_bits:
+            if name in BATTERY_FD_FAULT_BITS:
+                status_bits |= 1 << BATTERY_FD_FAULT_BITS[name][0]
         status_data = bytes([status_bits & 0xFF, (status_bits >> 8) & 0xFF, 0, 0,
                               BMU_HW_VERSION, BMU_MODEL_ID, 0, 0])
         packets.append(build_packet(BMS_STATUS_ADDR, status_data))
@@ -302,9 +309,11 @@ class SolarCarState:
         return packets
 
 
-def pick_fault(state):
-    """Randomly selects one VehicleWarnings.cs case and returns
-    (label, hold_seconds, activate, deactivate)."""
+def random_fault_candidate(state):
+    """Randomly builds one VehicleWarnings.cs case and returns
+    (key, label, hold_seconds, activate, deactivate). `key` uniquely identifies this
+    specific fault instance (e.g. which battery flag, which MPPT) so the scheduler can
+    avoid activating the same instance twice while it's already active."""
     category = random.choice([
         "battery_flag", "cell_spread", "cell_overtemp", "motor_overtemp",
         "mppt_overtemp", "mppt_status", "mppt_underperf", "comm_loss",
@@ -316,12 +325,12 @@ def pick_fault(state):
         name = random.choice(list(labels))
 
         def activate():
-            state.fault_battery_bit = name
+            state.fault_battery_bits.add(name)
 
         def deactivate():
-            state.fault_battery_bit = None
+            state.fault_battery_bits.discard(name)
 
-        return f"Battery: {labels[name]}", FAULT_HOLD_SECONDS, activate, deactivate
+        return ("battery_flag", name), f"Battery: {labels[name]}", FAULT_HOLD_SECONDS, activate, deactivate
 
     if category == "cell_spread":
         def activate():
@@ -330,80 +339,93 @@ def pick_fault(state):
         def deactivate():
             state.fault_cell_spread = False
 
-        return "Battery: cell voltage spread exceeds limit", FAULT_HOLD_SECONDS, activate, deactivate
+        return ("cell_spread",), "Battery: cell voltage spread exceeds limit", FAULT_HOLD_SECONDS, activate, deactivate
 
     if category == "cell_overtemp":
         cmu = random.randrange(NUM_CMU)
 
         def activate():
-            state.fault_cmu_overtemp = cmu
+            state.fault_cmu_overtemp.add(cmu)
 
         def deactivate():
-            state.fault_cmu_overtemp = None
+            state.fault_cmu_overtemp.discard(cmu)
 
-        return f"Battery: CMU {cmu} cell over-temperature", FAULT_HOLD_SECONDS, activate, deactivate
+        return ("cell_overtemp", cmu), f"Battery: CMU {cmu} cell over-temperature", FAULT_HOLD_SECONDS, activate, deactivate
 
     if category == "motor_overtemp":
         which = random.choice(["fet", "motor"])
 
         def activate():
-            state.fault_motor_overtemp = which
+            state.fault_motor_overtemp.add(which)
 
         def deactivate():
-            state.fault_motor_overtemp = None
+            state.fault_motor_overtemp.discard(which)
 
         label = "Motor controller FET over-temperature" if which == "fet" else "Motor over-temperature"
-        return label, FAULT_HOLD_SECONDS, activate, deactivate
+        return ("motor_overtemp", which), label, FAULT_HOLD_SECONDS, activate, deactivate
 
     if category == "mppt_overtemp":
         mppt_id = random.choice(list(MPPT_ADDR))
 
         def activate():
-            state.fault_mppt_overtemp = mppt_id
+            state.fault_mppt_overtemp.add(mppt_id)
 
         def deactivate():
-            state.fault_mppt_overtemp = None
+            state.fault_mppt_overtemp.discard(mppt_id)
 
-        return f"MPPT {mppt_id}: MOSFET over-temperature", FAULT_HOLD_SECONDS, activate, deactivate
+        return ("mppt_overtemp", mppt_id), f"MPPT {mppt_id}: MOSFET over-temperature", FAULT_HOLD_SECONDS, activate, deactivate
 
     if category == "mppt_status":
         mppt_id = random.choice(list(MPPT_ADDR))
         name = random.choice(list(MPPT_STATUS_FLAG_BITS))
 
         def activate():
-            state.fault_mppt_status_bit = (mppt_id, name)
+            state.fault_mppt_status_bits.add((mppt_id, name))
 
         def deactivate():
-            state.fault_mppt_status_bit = None
+            state.fault_mppt_status_bits.discard((mppt_id, name))
 
-        return f"MPPT {mppt_id}: {MPPT_STATUS_FLAG_BITS[name][1]}", FAULT_HOLD_SECONDS, activate, deactivate
+        label = f"MPPT {mppt_id}: {MPPT_STATUS_FLAG_BITS[name][1]}"
+        return ("mppt_status", mppt_id, name), label, FAULT_HOLD_SECONDS, activate, deactivate
 
     if category == "mppt_underperf":
         mppt_id = random.choice(list(MPPT_ADDR))
 
         def activate():
-            state.fault_mppt_underperf = mppt_id
+            state.fault_mppt_underperf.add(mppt_id)
 
         def deactivate():
-            state.fault_mppt_underperf = None
+            state.fault_mppt_underperf.discard(mppt_id)
 
         label = f"MPPT {mppt_id}: underperforming vs other panels"
-        return label, MPPT_UNDERPERF_HOLD_SECONDS, activate, deactivate
+        return ("mppt_underperf", mppt_id), label, MPPT_UNDERPERF_HOLD_SECONDS, activate, deactivate
 
     device = random.choice(DEVICE_TAGS)
 
     def activate():
-        state.fault_comm_loss = device
+        state.fault_comm_loss.add(device)
 
     def deactivate():
-        state.fault_comm_loss = None
+        state.fault_comm_loss.discard(device)
 
-    return f"{device}: not responding (comm loss)", COMM_TIMEOUT_HOLD_SECONDS, activate, deactivate
+    label = f"{device}: not responding (comm loss)"
+    return ("comm_loss", device), label, COMM_TIMEOUT_HOLD_SECONDS, activate, deactivate
+
+
+def pick_fault(state, active_keys, max_attempts=20):
+    """Picks a fault candidate that isn't already active. Returns None if no free
+    candidate turned up within max_attempts (collisions are rare given the size of the
+    candidate space, so this only matters when most cases are already active)."""
+    for _ in range(max_attempts):
+        candidate = random_fault_candidate(state)
+        if candidate[0] not in active_keys:
+            return candidate
+    return None
 
 
 def main():
     state = SolarCarState()
-    active_fault = None
+    active_faults = []  # list of {"key", "label", "deactivate", "clear_at"}, several can overlap
     next_fault_at = time.monotonic() + random.uniform(*FAULT_IDLE_SECONDS)
 
     print("Solar car simulator running on", PORT, "- Ctrl+C to stop.")
@@ -413,17 +435,26 @@ def main():
         while True:
             now = time.monotonic()
 
-            if active_fault and now >= active_fault["clear_at"]:
-                active_fault["deactivate"]()
-                print(f"[{time.strftime('%H:%M:%S')}] FAULT CLEARED : {active_fault['label']}")
-                active_fault = None
-                next_fault_at = now + random.uniform(*FAULT_IDLE_SECONDS)
+            still_active = []
+            for fault in active_faults:
+                if now >= fault["clear_at"]:
+                    fault["deactivate"]()
+                    print(f"[{time.strftime('%H:%M:%S')}] FAULT CLEARED : {fault['label']}")
+                else:
+                    still_active.append(fault)
+            active_faults = still_active
 
-            if active_fault is None and now >= next_fault_at:
-                label, hold, activate, deactivate = pick_fault(state)
-                activate()
-                active_fault = {"label": label, "deactivate": deactivate, "clear_at": now + hold}
-                print(f"[{time.strftime('%H:%M:%S')}] FAULT ACTIVE  : {label}  (holding {hold:.0f}s)")
+            if now >= next_fault_at:
+                if len(active_faults) < MAX_CONCURRENT_FAULTS:
+                    active_keys = {f["key"] for f in active_faults}
+                    picked = pick_fault(state, active_keys)
+                    if picked is not None:
+                        key, label, hold, activate, deactivate = picked
+                        activate()
+                        active_faults.append({"key": key, "label": label, "deactivate": deactivate, "clear_at": now + hold})
+                        suffix = f"  [{len(active_faults)} active]" if len(active_faults) > 1 else ""
+                        print(f"[{time.strftime('%H:%M:%S')}] FAULT ACTIVE  : {label}  (holding {hold:.0f}s){suffix}")
+                next_fault_at = now + random.uniform(*FAULT_IDLE_SECONDS)
 
             packets = state.build_packets()
             ser.write(b"".join(packets))
