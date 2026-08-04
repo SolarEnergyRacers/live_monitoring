@@ -11,6 +11,7 @@ INTERVAL = 1.0
 MPPT_ADDR = {1: 0x6A0, 2: 0x6B0, 3: 0x6C0, 4: 0x6D0}
 MPPT_MAX_CURRENT = {1: 3.0, 2: 2.8, 3: 3.1, 4: 2.9}  # amps, panel-to-panel variance
 
+AC_ADDR = 0x630
 MC_BASE_ADDR = 0x500
 DC_SPEED_ADDR = 0x661
 BMS_PACK_ADDR = 0x7FA
@@ -28,6 +29,51 @@ CMU_HEARTBEAT_SUBS = {0: 0x01, 1: 0x04, 2: 0x07, 3: 0x0A}
 BMU_HW_VERSION = 2
 BMU_MODEL_ID = 1
 PREC_STATE_RUN = 4
+
+# Fault registry, mirrors SER Live Monitoring/Services/VehicleWarnings.cs.
+
+# BMS extended-status fault bits (frame 0x7FD, bits 0-12 across bytes 0-1).
+BATTERY_FD_FAULT_BITS = {
+    "cell_over_voltage": (0, "Cell over-voltage"),
+    "cell_under_voltage": (1, "Cell under-voltage"),
+    "cell_over_temp": (2, "Cell over-temperature"),
+    "measurement_untrusted": (3, "BMS measurement untrusted"),
+    "cmu_comm_timeout": (4, "CMU communication timeout"),
+    "vehicle_comm_timeout": (5, "Vehicle communication timeout"),
+    "bmu_in_setup_mode": (6, "BMU is in setup mode"),
+    "cmu_can_power": (7, "CMU CAN power fault"),
+    "pack_isolation_fail": (8, "Pack isolation failure"),
+    "soc_invalid": (9, "State of charge invalid"),
+    "can_power_low": (10, "CAN power low"),
+    "contactor_stuck": (11, "Contactor stuck"),
+    "unexpected_cell": (12, "Unexpected cell detected"),
+}
+# Precharge-frame (0x7F7) driver-error bits, byte 0.
+BATTERY_PRECHARGE_FAULT_BITS = {
+    "err_cont_1_driver": (0, "Contactor 1 driver error"),
+    "err_cont_2_driver": (1, "Contactor 2 driver error"),
+    "err_cont_3_driver": (6, "Contactor 3 driver error"),
+}
+# MPPT status-frame (sub 0x5) fault bits, all within byte 3.
+MPPT_STATUS_FLAG_BITS = {
+    "mppt_mosfet_overheat": (1, "MOSFET overheating"),
+    "mppt_12V_undervoltage": (4, "12V rail under-voltage"),
+    "mppt_hw_over_curr": (6, "hardware over-current"),
+    "mppt_hw_over_volt": (7, "hardware over-voltage"),
+}
+DEVICE_TAGS = ["Bms", "Mppt1", "Mppt2", "Mppt3", "Mppt4", "Ac", "Dc", "Mc"]
+
+FAULT_HOLD_SECONDS = 4.0
+# Temperature channels normally drift slowly (thermal inertia); while a temperature fault
+# is forced, use a much faster approach rate so it actually crosses its threshold within
+# the short FAULT_HOLD_SECONDS window instead of still climbing when the fault clears.
+FAULT_TEMP_RATE = 0.6
+# VehicleWarnings averages MPPT power over a trailing 15s window before flagging
+# underperformance, so that fault needs to outlast the window to ever show up.
+MPPT_UNDERPERF_HOLD_SECONDS = 20.0
+# ...and comm-loss warnings only fire once a device has been silent for 5s.
+COMM_TIMEOUT_HOLD_SECONDS = 7.0
+FAULT_IDLE_SECONDS = (9.0, 11.0)
 
 
 def clamp(value, lo, hi):
@@ -55,6 +101,8 @@ class SolarCarState:
     def __init__(self):
         self.irradiance = 0.7
         self.mppt_current = {mppt_id: MPPT_MAX_CURRENT[mppt_id] * 0.6 for mppt_id in MPPT_ADDR}
+        self.mppt_mosfet_temp = {mppt_id: 32.0 for mppt_id in MPPT_ADDR}
+        self.mppt_controller_temp = {mppt_id: 30.0 for mppt_id in MPPT_ADDR}
 
         self.speed = 40.0
         self.target_speed = 40.0
@@ -74,11 +122,35 @@ class SolarCarState:
         self.pcb_temp = [30.0] * NUM_CMU
         self.cell_temp = [28.0] * NUM_CMU
 
+        self.ac_lifesign = 0
+
+        # Active fault overrides; None/False = normal operation. Set by the
+        # scheduler in main() via the activate/deactivate closures from pick_fault().
+        self.fault_battery_bit = None       # key into BATTERY_FD_FAULT_BITS / BATTERY_PRECHARGE_FAULT_BITS
+        self.fault_cell_spread = False
+        self.fault_cmu_overtemp = None      # cmu index 0-3
+        self.fault_motor_overtemp = None    # "fet" or "motor"
+        self.fault_mppt_overtemp = None     # mppt id 1-4
+        self.fault_mppt_status_bit = None   # (mppt_id, key into MPPT_STATUS_FLAG_BITS)
+        self.fault_mppt_underperf = None    # mppt id 1-4
+        self.fault_comm_loss = None         # one of DEVICE_TAGS
+
     def step(self):
         self.irradiance = walk(self.irradiance, 0.05, 0.15, 1.0)
         for mppt_id, capacity in MPPT_MAX_CURRENT.items():
+            if mppt_id == self.fault_mppt_underperf:
+                self.mppt_current[mppt_id] = approach(self.mppt_current[mppt_id], 0.05, 0.5, 0.02, 0, capacity)
+                continue
             target = self.irradiance * capacity
             self.mppt_current[mppt_id] = approach(self.mppt_current[mppt_id], target, 0.3, 0.05, 0, capacity)
+
+        for mppt_id in MPPT_ADDR:
+            is_faulted = mppt_id == self.fault_mppt_overtemp
+            temp_target = 92.0 if is_faulted else 30.0 + self.irradiance * 15.0
+            temp_rate = FAULT_TEMP_RATE if is_faulted else 0.15
+            self.mppt_mosfet_temp[mppt_id] = approach(self.mppt_mosfet_temp[mppt_id], temp_target, temp_rate, 0.3, 15, 100)
+            self.mppt_controller_temp[mppt_id] = approach(self.mppt_controller_temp[mppt_id],
+                                                            temp_target - 4.0, temp_rate, 0.3, 15, 100)
 
         self.target_speed = walk(self.target_speed, 4.0, 0, 100)
         self.speed = approach(self.speed, self.target_speed, 0.25, 1.0, 0, 100)
@@ -86,8 +158,12 @@ class SolarCarState:
         drag_current = 2.0 + (self.speed / 100.0) ** 2 * 20.0
         self.motor_in_current = approach(self.motor_in_current, drag_current, 0.3, 0.5, 0, 30)
 
-        self.fet_temp = approach(self.fet_temp, 25.0 + self.motor_in_current * 1.2, 0.1, 0.3, 15, 90)
-        self.motor_temp = approach(self.motor_temp, 20.0 + self.motor_in_current * 1.5, 0.08, 0.3, 15, 100)
+        fet_target = 95.0 if self.fault_motor_overtemp == "fet" else 25.0 + self.motor_in_current * 1.2
+        motor_target = 95.0 if self.fault_motor_overtemp == "motor" else 20.0 + self.motor_in_current * 1.5
+        fet_rate = FAULT_TEMP_RATE if self.fault_motor_overtemp == "fet" else 0.2
+        motor_rate = FAULT_TEMP_RATE if self.fault_motor_overtemp == "motor" else 0.15
+        self.fet_temp = approach(self.fet_temp, fet_target, fet_rate, 0.3, 15, 100)
+        self.motor_temp = approach(self.motor_temp, motor_target, motor_rate, 0.3, 15, 100)
         self.tacho = (self.tacho + int(self.speed * 6)) & 0x7FFFFFFF
 
         self.pack_baseline = clamp(self.pack_baseline - self.net_current * 0.0002, *CELL_VOLTAGE_RANGE)
@@ -95,14 +171,19 @@ class SolarCarState:
             clamp(self.pack_baseline + off + random.uniform(-0.002, 0.002), *CELL_VOLTAGE_RANGE)
             for off in self.cell_offsets
         ]
+        if self.fault_cell_spread:
+            self.cells[0] = max(2.5, self.cells[0] - random.uniform(0.4, 0.6))
+
+        cmu_temp_target = 24.0 + abs(self.net_current) * 0.3
+        self.cell_temp = [
+            68.0 if i == self.fault_cmu_overtemp else approach(t, cmu_temp_target, 0.05, 0.2, 15, 55)
+            for i, t in enumerate(self.cell_temp)
+        ]
+        self.pcb_temp = [approach(t, 26.0 + abs(self.net_current) * 0.3, 0.08, 0.2, 15, 60) for t in self.pcb_temp]
 
         battery_voltage = sum(self.cells)
         total_mppt_current = sum(self.mppt_current.values())
         self.net_current = self.motor_in_current - total_mppt_current
-
-        load_heat = abs(self.net_current) * 0.3
-        self.pcb_temp = [approach(t, 26.0 + load_heat, 0.08, 0.2, 15, 60) for t in self.pcb_temp]
-        self.cell_temp = [approach(t, 24.0 + load_heat, 0.05, 0.2, 15, 55) for t in self.cell_temp]
 
         return battery_voltage
 
@@ -110,35 +191,61 @@ class SolarCarState:
         battery_voltage = self.step()
         packets = []
 
+        def active(device_tag):
+            return self.fault_comm_loss != device_tag
+
         # Speed
-        target_power_kw = self.target_speed / 100.0 * 1.5
-        accel_display = int(clamp((self.target_speed - self.speed) * 5, -100, 100))
-        flags = 0
-        flags |= 1 << 0  # drive_direction: forward
-        if self.motor_in_current > 0.5:
-            flags |= 1 << 2  # motor_on
-        flags |= 1 << 4  # driver_confirm
-        speed_data = struct.pack("<HHbBBB",
-                                  int(self.target_speed), int(target_power_kw * 1000),
-                                  accel_display, 0, int(self.speed), flags)
-        packets.append(build_packet(DC_SPEED_ADDR, speed_data))
+        if active("Dc"):
+            target_power_kw = self.target_speed / 100.0 * 1.5
+            accel_display = int(clamp((self.target_speed - self.speed) * 5, -100, 100))
+            flags = 0
+            flags |= 1 << 0  # drive_direction: forward
+            if self.motor_in_current > 0.5:
+                flags |= 1 << 2  # motor_on
+            flags |= 1 << 4  # driver_confirm
+            speed_data = struct.pack("<HHbBBB",
+                                      int(self.target_speed), int(target_power_kw * 1000),
+                                      accel_display, 0, int(self.speed), flags)
+            packets.append(build_packet(DC_SPEED_ADDR, speed_data))
 
-        # MPPT output (voltage/current), voltage shared with battery bus
+        # MPPT output/temps/status (voltage shared with battery bus)
         for mppt_id, addr_base in MPPT_ADDR.items():
-            data = struct.pack(">ff", battery_voltage, self.mppt_current[mppt_id])
-            packets.append(build_packet(addr_base | 0x1, data))
+            if not active(f"Mppt{mppt_id}"):
+                continue
 
-        # Motor in current (+ FET/motor temps, unused PID position)
-        mc_data = struct.pack(">hhhh",
-                               int(self.fet_temp * 10), int(self.motor_temp * 10),
-                               int(self.motor_in_current * 10), 0)
-        packets.append(build_packet(MC_BASE_ADDR | 0x10, mc_data))
+            out_data = struct.pack(">ff", battery_voltage, self.mppt_current[mppt_id])
+            packets.append(build_packet(addr_base | 0x1, out_data))
 
-        # Motor in voltage (+ tachometer), voltage shared with battery bus
-        mc_volt_data = struct.pack(">ihH", self.tacho, int(battery_voltage * 10), 0)
-        packets.append(build_packet(MC_BASE_ADDR | 0x1B, mc_volt_data))
+            temp_data = struct.pack(">ff", self.mppt_mosfet_temp[mppt_id], self.mppt_controller_temp[mppt_id])
+            packets.append(build_packet(addr_base | 0x2, temp_data))
 
-        # Battery pack voltage/current
+            status_byte3 = 0
+            if self.fault_mppt_status_bit is not None and self.fault_mppt_status_bit[0] == mppt_id:
+                bit, _ = MPPT_STATUS_FLAG_BITS[self.fault_mppt_status_bit[1]]
+                status_byte3 |= 1 << bit
+            status_data = bytes([0, 0, 0, status_byte3, 0, 1, 0, 0])  # byte5 bit0 = mppt_is_on
+            packets.append(build_packet(addr_base | 0x5, status_data))
+
+        # AC controller heartbeat
+        if active("Ac"):
+            self.ac_lifesign = (self.ac_lifesign + 1) & 0xFFFF
+            ac_data = struct.pack("<H", self.ac_lifesign) + bytes([10, 5, 2, 0, 0, 0])
+            packets.append(build_packet(AC_ADDR, ac_data))
+
+        # Motor in current/voltage (+ FET/motor temps, tachometer)
+        if active("Mc"):
+            mc_data = struct.pack(">hhhh",
+                                   int(self.fet_temp * 10), int(self.motor_temp * 10),
+                                   int(self.motor_in_current * 10), 0)
+            packets.append(build_packet(MC_BASE_ADDR | 0x10, mc_data))
+
+            mc_volt_data = struct.pack(">ihH", self.tacho, int(battery_voltage * 10), 0)
+            packets.append(build_packet(MC_BASE_ADDR | 0x1B, mc_volt_data))
+
+        # Everything below comes from the BMS
+        if not active("Bms"):
+            return packets
+
         batt_data = struct.pack("<Ii", int(battery_voltage * 1000), int(self.net_current * 1000))
         packets.append(build_packet(BMS_PACK_ADDR, batt_data))
 
@@ -159,7 +266,9 @@ class SolarCarState:
 
         # Precharge status / contactors (contactors closed, run state; voltage across a
         # closed contactor is near-zero, unlike the pack voltage it gates)
-        prec_flags = (1 << 3) | (1 << 4) | (1 << 7)  # output_cont_1/2/3 closed, all err bits clear
+        prec_flags = (1 << 3) | (1 << 4) | (1 << 7)  # output_cont_1/2/3 closed
+        if self.fault_battery_bit in BATTERY_PRECHARGE_FAULT_BITS:
+            prec_flags |= 1 << BATTERY_PRECHARGE_FAULT_BITS[self.fault_battery_bit][0]
         cont_voltage = random.uniform(0.05, 0.3)
         precharge_data = struct.pack("<BBHHBB", prec_flags, PREC_STATE_RUN,
                                       int(cont_voltage * 1000), 0, 1, 0)
@@ -182,19 +291,140 @@ class SolarCarState:
                                         min_temp_cmu, 0, max_temp_cmu, 0)
         packets.append(build_packet(BMS_MINMAX_TEMP_ADDR, minmax_temp_data))
 
-        # Extended pack status: no faults, healthy pack
-        status_data = bytes([0, 0, 0, 0, BMU_HW_VERSION, BMU_MODEL_ID, 0, 0])
+        # Extended pack status
+        status_bits = 0
+        if self.fault_battery_bit in BATTERY_FD_FAULT_BITS:
+            status_bits = 1 << BATTERY_FD_FAULT_BITS[self.fault_battery_bit][0]
+        status_data = bytes([status_bits & 0xFF, (status_bits >> 8) & 0xFF, 0, 0,
+                              BMU_HW_VERSION, BMU_MODEL_ID, 0, 0])
         packets.append(build_packet(BMS_STATUS_ADDR, status_data))
 
         return packets
 
 
+def pick_fault(state):
+    """Randomly selects one VehicleWarnings.cs case and returns
+    (label, hold_seconds, activate, deactivate)."""
+    category = random.choice([
+        "battery_flag", "cell_spread", "cell_overtemp", "motor_overtemp",
+        "mppt_overtemp", "mppt_status", "mppt_underperf", "comm_loss",
+    ])
+
+    if category == "battery_flag":
+        labels = {**{k: v[1] for k, v in BATTERY_FD_FAULT_BITS.items()},
+                  **{k: v[1] for k, v in BATTERY_PRECHARGE_FAULT_BITS.items()}}
+        name = random.choice(list(labels))
+
+        def activate():
+            state.fault_battery_bit = name
+
+        def deactivate():
+            state.fault_battery_bit = None
+
+        return f"Battery: {labels[name]}", FAULT_HOLD_SECONDS, activate, deactivate
+
+    if category == "cell_spread":
+        def activate():
+            state.fault_cell_spread = True
+
+        def deactivate():
+            state.fault_cell_spread = False
+
+        return "Battery: cell voltage spread exceeds limit", FAULT_HOLD_SECONDS, activate, deactivate
+
+    if category == "cell_overtemp":
+        cmu = random.randrange(NUM_CMU)
+
+        def activate():
+            state.fault_cmu_overtemp = cmu
+
+        def deactivate():
+            state.fault_cmu_overtemp = None
+
+        return f"Battery: CMU {cmu} cell over-temperature", FAULT_HOLD_SECONDS, activate, deactivate
+
+    if category == "motor_overtemp":
+        which = random.choice(["fet", "motor"])
+
+        def activate():
+            state.fault_motor_overtemp = which
+
+        def deactivate():
+            state.fault_motor_overtemp = None
+
+        label = "Motor controller FET over-temperature" if which == "fet" else "Motor over-temperature"
+        return label, FAULT_HOLD_SECONDS, activate, deactivate
+
+    if category == "mppt_overtemp":
+        mppt_id = random.choice(list(MPPT_ADDR))
+
+        def activate():
+            state.fault_mppt_overtemp = mppt_id
+
+        def deactivate():
+            state.fault_mppt_overtemp = None
+
+        return f"MPPT {mppt_id}: MOSFET over-temperature", FAULT_HOLD_SECONDS, activate, deactivate
+
+    if category == "mppt_status":
+        mppt_id = random.choice(list(MPPT_ADDR))
+        name = random.choice(list(MPPT_STATUS_FLAG_BITS))
+
+        def activate():
+            state.fault_mppt_status_bit = (mppt_id, name)
+
+        def deactivate():
+            state.fault_mppt_status_bit = None
+
+        return f"MPPT {mppt_id}: {MPPT_STATUS_FLAG_BITS[name][1]}", FAULT_HOLD_SECONDS, activate, deactivate
+
+    if category == "mppt_underperf":
+        mppt_id = random.choice(list(MPPT_ADDR))
+
+        def activate():
+            state.fault_mppt_underperf = mppt_id
+
+        def deactivate():
+            state.fault_mppt_underperf = None
+
+        label = f"MPPT {mppt_id}: underperforming vs other panels"
+        return label, MPPT_UNDERPERF_HOLD_SECONDS, activate, deactivate
+
+    device = random.choice(DEVICE_TAGS)
+
+    def activate():
+        state.fault_comm_loss = device
+
+    def deactivate():
+        state.fault_comm_loss = None
+
+    return f"{device}: not responding (comm loss)", COMM_TIMEOUT_HOLD_SECONDS, activate, deactivate
+
+
 def main():
     state = SolarCarState()
+    active_fault = None
+    next_fault_at = time.monotonic() + random.uniform(*FAULT_IDLE_SECONDS)
+
+    print("Solar car simulator running on", PORT, "- Ctrl+C to stop.")
 
     with serial.Serial(PORT, BAUDRATE) as ser:
         next_tick = time.monotonic()
         while True:
+            now = time.monotonic()
+
+            if active_fault and now >= active_fault["clear_at"]:
+                active_fault["deactivate"]()
+                print(f"[{time.strftime('%H:%M:%S')}] FAULT CLEARED : {active_fault['label']}")
+                active_fault = None
+                next_fault_at = now + random.uniform(*FAULT_IDLE_SECONDS)
+
+            if active_fault is None and now >= next_fault_at:
+                label, hold, activate, deactivate = pick_fault(state)
+                activate()
+                active_fault = {"label": label, "deactivate": deactivate, "clear_at": now + hold}
+                print(f"[{time.strftime('%H:%M:%S')}] FAULT ACTIVE  : {label}  (holding {hold:.0f}s)")
+
             packets = state.build_packets()
             ser.write(b"".join(packets))
 
