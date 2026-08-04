@@ -10,20 +10,6 @@
 
 @{ var warnings = VehicleWarnings.Evaluate(DataManager, _isConnected, SettingsService.Current.WarningThresholds); }
 
-@if (warnings.Count > 0)
-{
-    <MudStack Spacing="1" Class="mb-4">
-        @foreach (var warning in warnings)
-        {
-            <MudAlert Severity="@ToSeverity(warning.Level)" Dense="true">@warning.Message</MudAlert>
-        }
-    </MudStack>
-}
-else
-{
-    <MudAlert Severity="Severity.Success" Dense="true" Class="mb-4">No active warnings</MudAlert>
-}
-
 <MudGrid>
     <MudItem xs="12" md="8">
         <MudGrid>
@@ -111,6 +97,22 @@ else
                 }
             </MudGrid>
         </MudPaper>
+
+        <MudPaper Class="pa-4 rounded-lg mt-4" Elevation="2">
+            @if (warnings.Count > 0)
+            {
+                <MudStack Spacing="1" Class="mb-4">
+                    @foreach (var warning in warnings)
+                    {
+                        <MudAlert Severity="@ToSeverity(warning.Level)" Dense="true">@warning.Message</MudAlert>
+                    }
+                </MudStack>
+            }
+            else
+            {
+                <MudAlert Severity="Severity.Success" Dense="true" Class="mb-4">No active warnings</MudAlert>
+            }
+        </MudPaper>
     </MudItem>
 </MudGrid>
 
@@ -122,7 +124,7 @@ else
 
     private static readonly StatDef[] MainStats =
     [
-        new("Speed", Icons.Material.Filled.Speed, MudBlazor.Color.Info, "#42A5F5", ChartSeries.Speed, ""),
+        new("Speed", Icons.Material.Filled.Speed, MudBlazor.Color.Info, "#42A5F5", ChartSeries.Speed, " km/h"),
         new("Solar Power", Icons.Material.Filled.WbSunny, MudBlazor.Color.Warning, "#FFC107", ChartSeries.SolarTotal, " W"),
         new("Motor Power", Icons.Material.Filled.ElectricBolt, MudBlazor.Color.Tertiary, "#FF7043", ChartSeries.MotorPower, " W"),
         new("Battery Power", Icons.Material.Filled.Power, MudBlazor.Color.Success, "#26A69A", ChartSeries.BatteryPower, " W"),
