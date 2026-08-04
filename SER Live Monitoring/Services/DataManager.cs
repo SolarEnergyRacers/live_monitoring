@@ -1,7 +1,10 @@
 using SER_Live_Monitoring.Models;
 namespace SER_Live_Monitoring.Services;
 
-
+/// <summary>
+/// Stores 1Hz timeseries data in a consistent format, interpolates automatically for easier calculations.
+/// </summary>
+/// 
 public class TimeSeries {
     public long StartTimestamp;
     public long LastTimestamp;
@@ -24,6 +27,22 @@ public class TimeSeries {
         }
 
         LastTimestamp = newTimestamp;
+    }
+
+    public List<double> getTimeframe(DateTime start, DateTime end) {
+        long startUnix = new DateTimeOffset(start).ToUnixTimeSeconds();
+        long endUnix = new DateTimeOffset(end).ToUnixTimeSeconds();
+
+        if (start > end) throw new ArgumentException("Start time is after end time.");
+        if (startUnix > LastTimestamp || endUnix < StartTimestamp) return new();
+
+        int startIndex = (int)(startUnix - StartTimestamp);
+        int length = (int)(endUnix - startUnix);
+
+        if (startIndex < 0) startIndex = 0;
+        if (startIndex + length > Datapoints.Count) length = Datapoints.Count - startIndex;
+
+        return Datapoints.Slice(startIndex, length);
     }
 }
 
@@ -107,6 +126,9 @@ public class DataManager : IDisposable
                     break;
                 case "calc_battery_power":
                     _PBattery.AddAndInterpolate(reading);
+                    break;
+                case "batt_volt":
+                    _UBat.AddAndInterpolate(reading);
                     break;
                 default:
                     break;
