@@ -11,13 +11,20 @@ public class CANFrameDecoder : IDataDecoder
         byte[] data = rawLine[2..];
         var timestamp = DateTime.Now;
 
-        if (IsBmsFrame(addr)) return DecodeBms(addr, data, timestamp);
-        if (IsMpptFrame(addr)) return DecodeMppt(addr, data, timestamp);
-        if (IsDcFrame(addr)) return DecodeDc(addr, data, timestamp);
-        if (IsAcFrame(addr)) return DecodeAc(addr, data, timestamp);
-        if (IsMcFrame(addr)) return DecodeMc(addr, data, timestamp);
+        string device;
+        List<Reading> readings;
 
-        return [];
+        if (IsBmsFrame(addr)) { device = "Bms"; readings = DecodeBms(addr, data, timestamp); }
+        else if (IsMpptFrame(addr)) { device = "Mppt" + GetMpptId(addr); readings = DecodeMppt(addr, data, timestamp); }
+        else if (IsDcFrame(addr)) { device = "Dc"; readings = DecodeDc(addr, data, timestamp); }
+        else if (IsAcFrame(addr)) { device = "Ac"; readings = DecodeAc(addr, data, timestamp); }
+        else if (IsMcFrame(addr)) { device = "Mc"; readings = DecodeMc(addr, data, timestamp); }
+        else return [];
+
+        // Emitted for every recognized frame regardless of sub-address, so the UI can show
+        // per-device activity even for sub-addresses that don't decode into named readings.
+        readings.Add(NewReading(timestamp, "device_heartbeat", 1, tags: [("device", device)]));
+        return readings;
     }
 
     public bool IsMpptFrame(short addr)
@@ -135,18 +142,18 @@ public class CANFrameDecoder : IDataDecoder
         return readings;
     }
 
+    private static string GetMpptId(short addr) => (addr & 0xFF0) switch
+    {
+        var m when m == CanConfig.Mppt1Addr => "1",
+        var m when m == CanConfig.Mppt2Addr => "2",
+        var m when m == CanConfig.Mppt3Addr => "3",
+        var m when m == CanConfig.Mppt4Addr => "4",
+        _ => $"Err:{addr}"
+    };
+
     private static List<Reading> DecodeMppt(short addr, byte[] data, DateTime ts)
     {
-        var masked = addr & 0xFF0;
-        string mpptId = masked switch
-        {
-            var m when m == CanConfig.Mppt1Addr => "1",
-            var m when m == CanConfig.Mppt2Addr => "2",
-            var m when m == CanConfig.Mppt3Addr => "3",
-            var m when m == CanConfig.Mppt4Addr => "4",
-            _ => $"Err:{addr}"
-        };
-        var tag = ("mppt_id", mpptId);
+        var tag = ("mppt_id", GetMpptId(addr));
 
         var readings = new List<Reading>();
 

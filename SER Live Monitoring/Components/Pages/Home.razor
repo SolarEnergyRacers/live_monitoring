@@ -66,10 +66,7 @@
                     </MudButton>
                 }
 
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                    <MudIcon Icon="@Icons.Material.Filled.Circle" Size="MudBlazor.Size.Small" Color="@DotColor" />
-                    <MudChip T="string" Color="@StatusColor" Variant="Variant.Filled">@SerialService.Status</MudChip>
-                </MudStack>
+                <MudChip T="string" Color="@StatusColor" Variant="Variant.Filled">@SerialService.Status</MudChip>
 
                 @if (!string.IsNullOrEmpty(SerialService.PortName))
                 {
@@ -81,6 +78,21 @@
                     <MudAlert Severity="Severity.Error" Dense="true">@SerialService.LastError</MudAlert>
                 }
             </MudStack>
+        </MudPaper>
+
+        <MudPaper Class="pa-4 rounded-lg mt-4" Elevation="2">
+            <MudText Typo="Typo.subtitle1" Class="mb-3">Device Activity</MudText>
+            <MudGrid Spacing="2">
+                @foreach (var (label, tag) in Devices)
+                {
+                    <MudItem xs="6">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                            <MudIcon Icon="@Icons.Material.Filled.Circle" Size="MudBlazor.Size.Small" Color="@DeviceDotColor(tag)" />
+                            <MudText Typo="Typo.body2">@label</MudText>
+                        </MudStack>
+                    </MudItem>
+                }
+            </MudGrid>
         </MudPaper>
     </MudItem>
 </MudGrid>
@@ -108,6 +120,20 @@
         new("MPPT 4", Icons.Material.Filled.SolarPower, MudBlazor.Color.Warning, "#FF8F00", ChartSeries.Mppt4, " W"),
     ];
 
+    // (Label, device tag) - the tag matches the "device" value CANFrameDecoder stamps on every
+    // decoded frame's "device_heartbeat" reading.
+    private static readonly (string Label, string Tag)[] Devices =
+    [
+        ("MC", "Mc"),
+        ("BMS", "Bms"),
+        ("MPPT1", "Mppt1"),
+        ("MPPT2", "Mppt2"),
+        ("MPPT3", "Mppt3"),
+        ("MPPT4", "Mppt4"),
+        ("AC", "Ac"),
+        ("DC", "Dc"),
+    ];
+
     private List<string> _availablePorts = [];
     private System.Threading.Timer? _uiRefreshTimer;
 
@@ -116,10 +142,14 @@
     private bool _isConnected => SerialService.Status == SerialConnectionStatus.Connected;
 
     private bool _blinkPhase;
-    private DateTime _lastDataAt = DateTime.MinValue;
 
-    private bool DataFlowing => _isConnected && DateTime.Now - _lastDataAt < DataFlowingThreshold;
-    private MudBlazor.Color DotColor => DataFlowing && _blinkPhase ? MudBlazor.Color.Success : MudBlazor.Color.Default;
+    private bool DeviceFlowing(string tag)
+    {
+        var heartbeat = DataManager.GetLatest("device_heartbeat", ("device", tag));
+        return heartbeat is not null && DateTime.Now - heartbeat.Timestamp < DataFlowingThreshold;
+    }
+
+    private MudBlazor.Color DeviceDotColor(string tag) => DeviceFlowing(tag) && _blinkPhase ? MudBlazor.Color.Success : MudBlazor.Color.Default;
 
     private MudBlazor.Color StatusColor => SerialService.Status switch
     {
@@ -142,7 +172,6 @@
     {
         RefreshPorts();
         SerialService.StatusChanged += OnStatusChanged;
-        DataManager.ReadingsAdded += OnReadingsAdded;
 
         // redraw ui at 2Hz, to prevent redrawing for every CAN frame received
         _uiRefreshTimer = new System.Threading.Timer(
@@ -171,11 +200,6 @@
 
     private void Disconnect() => SerialService.Disconnect();
 
-    private void OnReadingsAdded(List<Reading> readings)
-    {
-        _ = InvokeAsync(() => _lastDataAt = DateTime.Now);
-    }
-
     private void OnStatusChanged()
     {
         InvokeAsync(StateHasChanged);
@@ -184,7 +208,6 @@
     public void Dispose()
     {
         _uiRefreshTimer?.Dispose();
-        DataManager.ReadingsAdded -= OnReadingsAdded;
         SerialService.StatusChanged -= OnStatusChanged;
     }
 }

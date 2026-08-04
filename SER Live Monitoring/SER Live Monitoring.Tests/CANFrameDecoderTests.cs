@@ -1,3 +1,4 @@
+using SER_Live_Monitoring.Models;
 using SER_Live_Monitoring.Services;
 
 namespace SER_Live_Monitoring.Tests;
@@ -5,6 +6,16 @@ namespace SER_Live_Monitoring.Tests;
 public class CANFrameDecoderTests
 {
     private readonly CANFrameDecoder _decoder = new();
+
+    private static byte[] BuildFrame(short addr, byte[]? data = null)
+    {
+        data ??= new byte[8];
+        var frame = new byte[2 + data.Length];
+        frame[0] = (byte)(addr >> 8);
+        frame[1] = (byte)addr;
+        data.CopyTo(frame, 2);
+        return frame;
+    }
 
     // Mppt1Addr = 0x600, Mppt2Addr = 0x610, Mppt3Addr = 0x620, mask 0xFF0 => each matches its own 16-address block
     [Theory]
@@ -131,5 +142,43 @@ public class CANFrameDecoderTests
         ];
 
         Assert.Single(results, r => r);
+    }
+
+    [Theory]
+    [InlineData(0x700, "Bms")]
+    [InlineData(0x6A0, "Mppt1")]
+    [InlineData(0x6B0, "Mppt2")]
+    [InlineData(0x6C0, "Mppt3")]
+    [InlineData(0x6D0, "Mppt4")]
+    [InlineData(0x660, "Dc")]
+    [InlineData(0x630, "Ac")]
+    [InlineData(0x500, "Mc")]
+    public void Decode_KnownFrame_TagsDeviceHeartbeat(short addr, string expectedDevice)
+    {
+        var readings = _decoder.Decode(BuildFrame(addr));
+
+        var heartbeat = Assert.Single(readings, r => r.ReadingName == "device_heartbeat");
+        Assert.Equal(expectedDevice, heartbeat.Tags["device"]);
+    }
+
+    [Fact]
+    public void Decode_FrameWithUnhandledSubAddress_StillTagsDeviceHeartbeat()
+    {
+        // McBaseAddr's sub-address 0x00 isn't one of the cases DecodeMc understands (0x09/0x0e/0x0f/0x10/0x1b),
+        // so it produces no named readings on its own - the heartbeat must still fire so "device alive"
+        // tracking doesn't depend on which specific CAN message happens to arrive.
+        var readings = _decoder.Decode(BuildFrame(CanConfig.McBaseAddr));
+
+        var heartbeat = Assert.Single(readings);
+        Assert.Equal("device_heartbeat", heartbeat.ReadingName);
+        Assert.Equal("Mc", heartbeat.Tags["device"]);
+    }
+
+    [Fact]
+    public void Decode_UnrecognizedAddress_ReturnsNoReadings()
+    {
+        var readings = _decoder.Decode(BuildFrame(0x000));
+
+        Assert.Empty(readings);
     }
 }

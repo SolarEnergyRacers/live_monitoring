@@ -8,21 +8,25 @@
     </MudStack>
     <MudText Typo="Typo.h5" Class="mt-1">@Value</MudText>
 
-    @if (Points.Count >= 2)
-    {
-        <ApexChart TItem="SparkPoint" @ref="_chart" Height="80" Options="_options">
-            <ApexPointSeries TItem="SparkPoint"
-                             Items="Points"
-                             SeriesType="SeriesType.Area"
-                             XValue="p => p.Index"
-                             YValue="p => (decimal)p.Value"
-                             ShowDataLabels="false" />
-        </ApexChart>
-    }
-    else
-    {
-        <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary" Class="mt-2">Waiting for data…</MudText>
-    }
+    <div style="height: @(ChartHeight)px">
+        @if (Points.Count >= 2)
+        {
+            <ApexChart TItem="SparkPoint" @ref="_chart" Height="@ChartHeight" Options="_options">
+                <ApexPointSeries TItem="SparkPoint"
+                                 Items="Points"
+                                 SeriesType="SeriesType.Area"
+                                 XValue="p => p.Index"
+                                 YValue="p => (decimal)p.Value"
+                                 ShowDataLabels="false" />
+            </ApexChart>
+        }
+        else
+        {
+            <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center" Style="height: 100%">
+                <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">Waiting for data…</MudText>
+            </MudStack>
+        }
+    </div>
 </MudPaper>
 
 @code {
@@ -32,6 +36,8 @@
     [Parameter] public MudBlazor.Color AccentColor { get; set; } = MudBlazor.Color.Primary;
     [Parameter] public string ChartColor { get; set; } = "#594AE2";
     [Parameter, EditorRequired] public List<double> Series { get; set; } = new();
+
+    private const int ChartHeight = 80;
 
     private ApexChart<SparkPoint>? _chart;
     private ApexChartOptions<SparkPoint> _options = new();
@@ -70,7 +76,8 @@
                 new()
                 {
                     TickAmount = 2,
-                    Labels = new YAxisLabels { Style = new AxisLabelStyle { FontSize = "10px" } },
+                    DecimalsInFloat = 0,
+                    Labels = new YAxisLabels { Style = new AxisLabelStyle { FontSize = "10px", Colors = "#FFFFFF" } },
                     AxisBorder = new AxisBorder { Show = false }
                 }
             }
