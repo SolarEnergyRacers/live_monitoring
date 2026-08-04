@@ -1,3 +1,4 @@
+import argparse
 import random
 import struct
 import time
@@ -63,6 +64,13 @@ MPPT_STATUS_FLAG_BITS = {
 }
 DEVICE_TAGS = ["Bms", "Mppt1", "Mppt2", "Mppt3", "Mppt4", "Ac", "Dc", "Mc"]
 
+# Which devices get simulated at all, selected via --mode.
+MODES = {
+    "full": set(DEVICE_TAGS),
+    "ac": {"Ac"},
+    "ac_dc": {"Ac", "Dc"},
+}
+
 FAULT_HOLD_SECONDS = 4.0
 # Temperature channels normally drift slowly (thermal inertia); while a temperature fault
 # is forced, use a much faster approach rate so it actually crosses its threshold within
@@ -101,7 +109,9 @@ def build_packet(addr, data):
 
 
 class SolarCarState:
-    def __init__(self):
+    def __init__(self, enabled_devices=None):
+        self.enabled_devices = enabled_devices if enabled_devices is not None else set(DEVICE_TAGS)
+
         self.irradiance = 0.7
         self.mppt_current = {mppt_id: MPPT_MAX_CURRENT[mppt_id] * 0.6 for mppt_id in MPPT_ADDR}
         self.mppt_mosfet_temp = {mppt_id: 32.0 for mppt_id in MPPT_ADDR}
@@ -196,7 +206,7 @@ class SolarCarState:
         packets = []
 
         def active(device_tag):
-            return device_tag not in self.fault_comm_loss
+            return device_tag in self.enabled_devices and device_tag not in self.fault_comm_loss
 
         # Speed
         if active("Dc"):
@@ -313,11 +323,29 @@ def random_fault_candidate(state):
     """Randomly builds one VehicleWarnings.cs case and returns
     (key, label, hold_seconds, activate, deactivate). `key` uniquely identifies this
     specific fault instance (e.g. which battery flag, which MPPT) so the scheduler can
-    avoid activating the same instance twice while it's already active."""
-    category = random.choice([
-        "battery_flag", "cell_spread", "cell_overtemp", "motor_overtemp",
-        "mppt_overtemp", "mppt_status", "mppt_underperf", "comm_loss",
-    ])
+    avoid activating the same instance twice while it's already active.
+
+    Only draws from categories whose device is actually being simulated (state.enabled_devices),
+    so e.g. --mode ac never picks a battery fault when no BMS frames are being sent at all.
+    Returns None if no category applies (shouldn't happen with any of the defined MODES,
+    since comm_loss is always available whenever at least one device is enabled)."""
+    enabled = state.enabled_devices
+    enabled_mppts = [mppt_id for mppt_id in MPPT_ADDR if f"Mppt{mppt_id}" in enabled]
+
+    categories = []
+    if "Bms" in enabled:
+        categories += ["battery_flag", "cell_spread", "cell_overtemp"]
+    if "Mc" in enabled:
+        categories.append("motor_overtemp")
+    if enabled_mppts:
+        categories += ["mppt_overtemp", "mppt_status", "mppt_underperf"]
+    if enabled:
+        categories.append("comm_loss")
+
+    if not categories:
+        return None
+
+    category = random.choice(categories)
 
     if category == "battery_flag":
         labels = {**{k: v[1] for k, v in BATTERY_FD_FAULT_BITS.items()},
@@ -365,7 +393,7 @@ def random_fault_candidate(state):
         return ("motor_overtemp", which), label, FAULT_HOLD_SECONDS, activate, deactivate
 
     if category == "mppt_overtemp":
-        mppt_id = random.choice(list(MPPT_ADDR))
+        mppt_id = random.choice(enabled_mppts)
 
         def activate():
             state.fault_mppt_overtemp.add(mppt_id)
@@ -376,7 +404,7 @@ def random_fault_candidate(state):
         return ("mppt_overtemp", mppt_id), f"MPPT {mppt_id}: MOSFET over-temperature", FAULT_HOLD_SECONDS, activate, deactivate
 
     if category == "mppt_status":
-        mppt_id = random.choice(list(MPPT_ADDR))
+        mppt_id = random.choice(enabled_mppts)
         name = random.choice(list(MPPT_STATUS_FLAG_BITS))
 
         def activate():
@@ -389,7 +417,7 @@ def random_fault_candidate(state):
         return ("mppt_status", mppt_id, name), label, FAULT_HOLD_SECONDS, activate, deactivate
 
     if category == "mppt_underperf":
-        mppt_id = random.choice(list(MPPT_ADDR))
+        mppt_id = random.choice(enabled_mppts)
 
         def activate():
             state.fault_mppt_underperf.add(mppt_id)
@@ -400,7 +428,7 @@ def random_fault_candidate(state):
         label = f"MPPT {mppt_id}: underperforming vs other panels"
         return ("mppt_underperf", mppt_id), label, MPPT_UNDERPERF_HOLD_SECONDS, activate, deactivate
 
-    device = random.choice(DEVICE_TAGS)
+    device = random.choice(list(enabled))
 
     def activate():
         state.fault_comm_loss.add(device)
@@ -418,17 +446,29 @@ def pick_fault(state, active_keys, max_attempts=20):
     candidate space, so this only matters when most cases are already active)."""
     for _ in range(max_attempts):
         candidate = random_fault_candidate(state)
-        if candidate[0] not in active_keys:
+        if candidate is not None and candidate[0] not in active_keys:
             return candidate
     return None
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Solar car CAN telemetry simulator")
+    parser.add_argument("--mode", choices=sorted(MODES), default="full",
+                         help="Which devices to simulate: full (everything, default), "
+                              "ac (AC controller only), ac_dc (AC + DC dash unit only)")
+    return parser.parse_args()
+
+
 def main():
-    state = SolarCarState()
+    args = parse_args()
+    enabled_devices = MODES[args.mode]
+
+    state = SolarCarState(enabled_devices)
     active_faults = []  # list of {"key", "label", "deactivate", "clear_at"}, several can overlap
     next_fault_at = time.monotonic() + random.uniform(*FAULT_IDLE_SECONDS)
 
-    print("Solar car simulator running on", PORT, "- Ctrl+C to stop.")
+    print(f"Solar car simulator running on {PORT} in '{args.mode}' mode "
+          f"({', '.join(sorted(enabled_devices))}) - Ctrl+C to stop.")
 
     with serial.Serial(PORT, BAUDRATE) as ser:
         next_tick = time.monotonic()
