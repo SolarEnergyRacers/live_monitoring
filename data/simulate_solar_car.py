@@ -14,11 +14,20 @@ MPPT_MAX_CURRENT = {1: 3.0, 2: 2.8, 3: 3.1, 4: 2.9}  # amps, panel-to-panel vari
 MC_BASE_ADDR = 0x500
 DC_SPEED_ADDR = 0x661
 BMS_PACK_ADDR = 0x7FA
+BMS_PRECHARGE_ADDR = 0x7F7
+BMS_MINMAX_VOLTAGE_ADDR = 0x7F8
+BMS_MINMAX_TEMP_ADDR = 0x7F9
+BMS_STATUS_ADDR = 0x7FD
 
 NUM_CMU = 4
 CELLS_PER_CMU = 8
 CELL_VOLTAGE_RANGE = (3.30, 4.20)
 CMU_VOLTAGE_SUBS = {0: (0x02, 0x03), 1: (0x05, 0x06), 2: (0x08, 0x09), 3: (0x0B, 0x0C)}
+CMU_HEARTBEAT_SUBS = {0: 0x01, 1: 0x04, 2: 0x07, 3: 0x0A}
+
+BMU_HW_VERSION = 2
+BMU_MODEL_ID = 1
+PREC_STATE_RUN = 4
 
 
 def clamp(value, lo, hi):
@@ -61,6 +70,10 @@ class SolarCarState:
 
         self.net_current = 0.0
 
+        self.cmu_serial = [100000 + i for i in range(NUM_CMU)]
+        self.pcb_temp = [30.0] * NUM_CMU
+        self.cell_temp = [28.0] * NUM_CMU
+
     def step(self):
         self.irradiance = walk(self.irradiance, 0.05, 0.15, 1.0)
         for mppt_id, capacity in MPPT_MAX_CURRENT.items():
@@ -86,6 +99,10 @@ class SolarCarState:
         battery_voltage = sum(self.cells)
         total_mppt_current = sum(self.mppt_current.values())
         self.net_current = self.motor_in_current - total_mppt_current
+
+        load_heat = abs(self.net_current) * 0.3
+        self.pcb_temp = [approach(t, 26.0 + load_heat, 0.08, 0.2, 15, 60) for t in self.pcb_temp]
+        self.cell_temp = [approach(t, 24.0 + load_heat, 0.05, 0.2, 15, 55) for t in self.cell_temp]
 
         return battery_voltage
 
@@ -126,14 +143,48 @@ class SolarCarState:
         packets.append(build_packet(BMS_PACK_ADDR, batt_data))
 
         # Battery cell voltages, 4 cells per frame
+        cell_mv = [int(v * 1000) for v in self.cells]
         for cmu_num, (sub_low, sub_high) in CMU_VOLTAGE_SUBS.items():
             base = cmu_num * CELLS_PER_CMU
-            low_cells = self.cells[base:base + 4]
-            high_cells = self.cells[base + 4:base + 8]
-            packets.append(build_packet(0x700 | sub_low,
-                                         struct.pack("<hhhh", *(int(v * 1000) for v in low_cells))))
-            packets.append(build_packet(0x700 | sub_high,
-                                         struct.pack("<hhhh", *(int(v * 1000) for v in high_cells))))
+            low_cells = cell_mv[base:base + 4]
+            high_cells = cell_mv[base + 4:base + 8]
+            packets.append(build_packet(0x700 | sub_low, struct.pack("<hhhh", *low_cells)))
+            packets.append(build_packet(0x700 | sub_high, struct.pack("<hhhh", *high_cells)))
+
+        # CMU heartbeat + PCB/cell temperature, one frame per CMU
+        for cmu_num, sub in CMU_HEARTBEAT_SUBS.items():
+            data = struct.pack("<Ihh", self.cmu_serial[cmu_num],
+                                int(self.pcb_temp[cmu_num] * 10), int(self.cell_temp[cmu_num] * 10))
+            packets.append(build_packet(0x700 | sub, data))
+
+        # Precharge status / contactors (contactors closed, run state; voltage across a
+        # closed contactor is near-zero, unlike the pack voltage it gates)
+        prec_flags = (1 << 3) | (1 << 4) | (1 << 7)  # output_cont_1/2/3 closed, all err bits clear
+        cont_voltage = random.uniform(0.05, 0.3)
+        precharge_data = struct.pack("<BBHHBB", prec_flags, PREC_STATE_RUN,
+                                      int(cont_voltage * 1000), 0, 1, 0)
+        packets.append(build_packet(BMS_PRECHARGE_ADDR, precharge_data))
+
+        # Min/max cell voltage, with the CMU/cell location of each
+        min_idx = min(range(len(cell_mv)), key=lambda i: cell_mv[i])
+        max_idx = max(range(len(cell_mv)), key=lambda i: cell_mv[i])
+        min_cmu, min_cell = divmod(min_idx, CELLS_PER_CMU)
+        max_cmu, max_cell = divmod(max_idx, CELLS_PER_CMU)
+        minmax_volt_data = struct.pack("<HHBBBB", cell_mv[min_idx], cell_mv[max_idx],
+                                        min_cmu, min_cell, max_cmu, max_cell)
+        packets.append(build_packet(BMS_MINMAX_VOLTAGE_ADDR, minmax_volt_data))
+
+        # Min/max cell temp, with the CMU of each
+        temp_ct = [int(t * 10) for t in self.cell_temp]
+        min_temp_cmu = min(range(NUM_CMU), key=lambda i: temp_ct[i])
+        max_temp_cmu = max(range(NUM_CMU), key=lambda i: temp_ct[i])
+        minmax_temp_data = struct.pack("<HHBBBB", temp_ct[min_temp_cmu], temp_ct[max_temp_cmu],
+                                        min_temp_cmu, 0, max_temp_cmu, 0)
+        packets.append(build_packet(BMS_MINMAX_TEMP_ADDR, minmax_temp_data))
+
+        # Extended pack status: no faults, healthy pack
+        status_data = bytes([0, 0, 0, 0, BMU_HW_VERSION, BMU_MODEL_ID, 0, 0])
+        packets.append(build_packet(BMS_STATUS_ADDR, status_data))
 
         return packets
 
