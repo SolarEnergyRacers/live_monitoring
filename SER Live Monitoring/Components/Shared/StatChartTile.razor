@@ -1,0 +1,85 @@
+<MudPaper Class="pa-3 rounded-lg" Elevation="2">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+        @if (Icon is not null)
+        {
+            <MudIcon Icon="@Icon" Color="@AccentColor" Size="MudBlazor.Size.Small" />
+        }
+        <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">@Title</MudText>
+    </MudStack>
+    <MudText Typo="Typo.h5" Class="mt-1">@Value</MudText>
+
+    @if (Points.Count >= 2)
+    {
+        <ApexChart TItem="SparkPoint" @ref="_chart" Height="80" Options="_options">
+            <ApexPointSeries TItem="SparkPoint"
+                             Items="Points"
+                             SeriesType="SeriesType.Area"
+                             XValue="p => p.Index"
+                             YValue="p => (decimal)p.Value"
+                             ShowDataLabels="false" />
+        </ApexChart>
+    }
+    else
+    {
+        <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary" Class="mt-2">Waiting for data…</MudText>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public string Value { get; set; } = "--";
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public MudBlazor.Color AccentColor { get; set; } = MudBlazor.Color.Primary;
+    [Parameter] public string ChartColor { get; set; } = "#594AE2";
+    [Parameter, EditorRequired] public List<double> Series { get; set; } = new();
+
+    private ApexChart<SparkPoint>? _chart;
+    private ApexChartOptions<SparkPoint> _options = new();
+    private string? _optionsColor;
+
+    private List<SparkPoint> Points => Series.Select((v, i) => new SparkPoint(i, v)).ToList();
+
+    protected override void OnParametersSet()
+    {
+        // Options are per-chart-instance and cannot be shared, but the color is only known once
+        // parameters bind, so build it lazily instead of in a field initializer.
+        if (_optionsColor == ChartColor)
+            return;
+
+        _optionsColor = ChartColor;
+        _options = new ApexChartOptions<SparkPoint>
+        {
+            Chart = new Chart
+            {
+                Sparkline = new ChartSparkline { Enabled = false },
+                Animations = new Animations { Enabled = false },
+                Toolbar = new Toolbar { Show = false }
+            },
+            Stroke = new Stroke { Width = 2, Curve = Curve.Smooth },
+            Tooltip = new Tooltip { Enabled = false },
+            Colors = new List<string> { ChartColor },
+            Grid = new Grid { Padding = new Padding { Left = 0, Right = 5, Top = 5, Bottom = 0 } },
+            Xaxis = new XAxis
+            {
+                Labels = new XAxisLabels { Show = false },
+                AxisTicks = new AxisTicks { Show = false },
+                AxisBorder = new AxisBorder { Show = false }
+            },
+            Yaxis = new List<YAxis>
+            {
+                new()
+                {
+                    TickAmount = 2,
+                    Labels = new YAxisLabels { Style = new AxisLabelStyle { FontSize = "10px" } },
+                    AxisBorder = new AxisBorder { Show = false }
+                }
+            }
+        };
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender && _chart is not null)
+            await _chart.UpdateSeriesAsync();
+    }
+}
