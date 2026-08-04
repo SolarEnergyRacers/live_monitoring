@@ -255,6 +255,14 @@ public class CANFrameDecoder : IDataDecoder
                 readings.Add(NewReading(ts, "const_mode_on", GetBit(data, 59) ? 1 : 0));
                 readings.Add(NewReading(ts, "driver_confirm", GetBit(data, 60) ? 1 : 0));
                 break;
+            case 0x2:
+                readings.Add(NewReading(ts, "dc_motor_current", GetInt(data, 16, false, 0), "A"));
+                readings.Add(NewReading(ts, "dc_battery_voltage", GetInt(data, 16, false, 1), "V"));
+                readings.Add(NewReading(ts, "dc_pv_voltage", GetInt(data, 16, false, 2), "V"));
+                readings.Add(NewReading(ts, "dc_motor_on", GetBit(data, 48) ? 1 : 0));
+                readings.Add(NewReading(ts, "dc_battery_on", GetBit(data, 49) ? 1 : 0));
+                readings.Add(NewReading(ts, "dc_pv_on", GetBit(data, 51) ? 1 : 0)); // sicher??
+                break;
         }
 
         return readings;
@@ -265,9 +273,9 @@ public class CANFrameDecoder : IDataDecoder
         var readings = new List<Reading>
         {
             NewReading(ts, "ac_life_sign", GetInt(data, 16, false, 0)),
-            NewReading(ts, "Kp", GetInt(data, 8, false, 2)),
-            NewReading(ts, "Ki", GetInt(data, 8, false, 3)),
-            NewReading(ts, "Kd", GetInt(data, 8, false, 4)),
+            NewReading(ts, "Kp", GetInt(data, 8, false, 2) / 1000.0),
+            NewReading(ts, "Ki", GetInt(data, 8, false, 3) / 1000.0),
+            NewReading(ts, "Kd", GetInt(data, 8, false, 4) / 1000.0),
             NewReading(ts, "ac_glidemode", GetInt(data, 8, false, 5)),
             // ac_mode: 1 = speed, 0 = power
             NewReading(ts, "ac_mode", GetBit(data, 33) ? 1 : 0)
