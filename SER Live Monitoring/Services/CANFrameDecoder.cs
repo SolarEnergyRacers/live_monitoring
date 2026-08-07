@@ -171,22 +171,22 @@ public class CANFrameDecoder : IDataDecoder
         switch (addr & 0xF)
         {
             case 0x0: // Input
-                float mpptInVoltage = GetFloat(data, 0, false);
-                float mpptInCurrent = GetFloat(data, 1, false);
+                float mpptInVoltage = GetFloat(data, 0, true);
+                float mpptInCurrent = GetFloat(data, 1, true);
                 readings.Add(NewReading(ts, "mppt_in_voltage", mpptInVoltage, "V", tag));
                 readings.Add(NewReading(ts, "mppt_in_current", mpptInCurrent, "A", tag));
                 readings.Add(NewReading(ts, "calc_mppt_in_power", mpptInVoltage * mpptInCurrent, "W", tag));
                 break;
             case 0x1: // Output
-                float mpptOutVoltage = GetFloat(data, 0, false);
-                float mpptOutCurrent = GetFloat(data, 1, false);
+                float mpptOutVoltage = GetFloat(data, 0, true);
+                float mpptOutCurrent = GetFloat(data, 1, true);
                 readings.Add(NewReading(ts, "mppt_out_voltage", mpptOutVoltage, "V", tag));
                 readings.Add(NewReading(ts, "mppt_out_current", mpptOutCurrent, "A", tag));
                 readings.Add(NewReading(ts, "calc_mppt_out_power", mpptOutVoltage * mpptOutCurrent, "W", tag));
                 break;
             case 0x2: // Temps
-                readings.Add(NewReading(ts, "mppt_mosfet_temp", GetFloat(data, 0, false), "°C", tag));
-                readings.Add(NewReading(ts, "mppt_controller_temp", GetFloat(data, 1, false), "°C", tag));
+                readings.Add(NewReading(ts, "mppt_mosfet_temp", GetFloat(data, 0, true), "°C", tag));
+                readings.Add(NewReading(ts, "mppt_controller_temp", GetFloat(data, 1, true), "°C", tag));
                 break;
             case 0x3: // Aux power voltages
                 readings.Add(NewReading(ts, "aux_12V_voltage", GetFloat(data, 1, true), "V", tag));
