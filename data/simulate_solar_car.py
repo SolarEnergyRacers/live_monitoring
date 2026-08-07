@@ -95,6 +95,13 @@ RADIO_PARTIAL_PROB = 0.04
 RADIO_SPLIT_PROB = 0.12
 RADIO_SPLIT_DELAY_SECONDS = (0.005, 0.03)
 
+# Driver display commands the app sends over the same serial link (SerialPortMonitorService's
+# SendInfo/SendWarn): ':<text>' / '!<text>', newline-terminated. Simulates the driver reading the
+# car's dash display and pressing confirm CONFIRM_DELAY_SECONDS later, which the real hardware
+# reflects by holding the driver_confirm bit (DC speed frame, flags bit 4) for CONFIRM_HOLD_SECONDS.
+CONFIRM_DELAY_SECONDS = 10.0
+CONFIRM_HOLD_SECONDS = 2.0
+
 
 def clamp(value, lo, hi):
     return max(lo, min(hi, value))
@@ -140,6 +147,24 @@ def send_packet(ser, packet, radio_enabled):
         ser.write(packet)
 
 
+def read_driver_messages(ser, buf):
+    """Non-blocking check for driver display commands sent by the app. Appends anything
+    already buffered by the OS to `buf`, splits off complete newline-terminated lines, and
+    returns (remaining_buf, lines) - lines is empty most calls since these are only sent when
+    someone uses the Driver Messages panel, not on every tick."""
+    if ser.in_waiting:
+        buf += ser.read(ser.in_waiting)
+
+    lines = []
+    while b"\n" in buf:
+        line, buf = buf.split(b"\n", 1)
+        line = line.strip(b"\r")
+        if line:
+            lines.append(line.decode("utf-8", errors="replace"))
+
+    return buf, lines
+
+
 class SolarCarState:
     def __init__(self, enabled_devices=None):
         self.enabled_devices = enabled_devices if enabled_devices is not None else set(DEVICE_TAGS)
@@ -180,6 +205,31 @@ class SolarCarState:
         self.fault_mppt_status_bits = set()  # (mppt_id, key into MPPT_STATUS_FLAG_BITS)
         self.fault_mppt_underperf = set()   # mppt ids 1-4
         self.fault_comm_loss = set()        # subset of DEVICE_TAGS
+
+        # Driver confirm: see schedule_confirm/update_confirm below.
+        self.driver_confirm_active = False
+        self._confirm_pending_at = None  # time.monotonic() deadline to start the confirm pulse
+        self._confirm_clear_at = None    # time.monotonic() deadline to end it
+
+    def schedule_confirm(self, now):
+        """Called when the driver display gets a new info/warn message - (re)starts the
+        CONFIRM_DELAY_SECONDS countdown to the simulated driver pressing confirm. A later
+        message before the timer fires pushes it out, since the dash only ever shows the
+        latest message and it's that one the driver is reading."""
+        self._confirm_pending_at = now + CONFIRM_DELAY_SECONDS
+
+    def update_confirm(self, now):
+        """Advances the confirm pulse state; call once per tick with the current time."""
+        if self._confirm_pending_at is not None and now >= self._confirm_pending_at:
+            self._confirm_pending_at = None
+            self.driver_confirm_active = True
+            self._confirm_clear_at = now + CONFIRM_HOLD_SECONDS
+            print(f"[{time.strftime('%H:%M:%S')}] DRIVER CONFIRM: pressed")
+
+        if self._confirm_clear_at is not None and now >= self._confirm_clear_at:
+            self._confirm_clear_at = None
+            self.driver_confirm_active = False
+            print(f"[{time.strftime('%H:%M:%S')}] DRIVER CONFIRM: released")
 
     def step(self):
         self.irradiance = walk(self.irradiance, 0.05, 0.15, 1.0)
@@ -253,7 +303,8 @@ class SolarCarState:
             flags |= 1 << 0  # drive_direction: forward
             if self.motor_in_current > 0.5:
                 flags |= 1 << 2  # motor_on
-            flags |= 1 << 4  # driver_confirm
+            if self.driver_confirm_active:
+                flags |= 1 << 4  # driver_confirm
             speed_data = struct.pack("<HHbBBB",
                                       targetspeed_raw, int(target_power_kw * 1000),
                                       accel_display, int(self.speed), dc_drive, flags)
@@ -526,8 +577,18 @@ def main():
 
     with serial.Serial(PORT, BAUDRATE) as ser:
         next_tick = time.monotonic()
+        recv_buf = b""
         while True:
             now = time.monotonic()
+
+            recv_buf, driver_lines = read_driver_messages(ser, recv_buf)
+            for line in driver_lines:
+                if line[0] in (":", "!"):
+                    kind = "INFO" if line[0] == ":" else "WARN"
+                    print(f"[{time.strftime('%H:%M:%S')}] DRIVER {kind} MSG: {line[1:]!r} "
+                          f"- confirming in {CONFIRM_DELAY_SECONDS:.0f}s")
+                    state.schedule_confirm(now)
+            state.update_confirm(now)
 
             still_active = []
             for fault in active_faults:
