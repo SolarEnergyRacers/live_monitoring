@@ -5,12 +5,11 @@ public enum DriverMessageSeverity
     Info,
     Warn
 }
-
-public class DriverMessage
+public record DriverMessage
 {
-    public Guid Id { get; set; }
-    public DriverMessageSeverity Severity { get; set; }
-    public string Text { get; set; } = "";
-    public DateTime SentAt { get; set; }
-    public DateTime? ConfirmedAt { get; set; }
+    public Guid Id { get; init; }
+    public DriverMessageSeverity Severity { get; init; }
+    public string Text { get; init; } = "";
+    public DateTime SentAt { get; init; }
+    public DateTime? ConfirmedAt { get; init; }
 }

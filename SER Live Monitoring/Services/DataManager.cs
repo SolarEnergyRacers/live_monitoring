@@ -127,6 +127,13 @@ public class DataManager : IDisposable
 
     public event Action<List<Reading>>? ReadingsAdded;
 
+    // Driver messages change from a background thread (the serial read thread, via Ingest) as
+    // well as from UI event handlers (AddDriverMessage). The UI-handler case already re-renders
+    // itself for free, but the background case doesn't touch any Blazor circuit at all, so
+    // DriverMessagePanel subscribes to this to know when to StateHasChanged - matching how
+    // SerialPortMonitorService.StatusChanged and EventTimestampService.EventsChanged are used.
+    public event Action? DriverMessagesChanged;
+
     public DataManager(SerialPortMonitorService serialService)
     {
         _serialService = serialService;
@@ -137,23 +144,31 @@ public class DataManager : IDisposable
     // live SerialPortMonitorService.
     public void Ingest(List<Reading> readings)
     {
+        bool confirmed;
+
         lock (_lock)
         {
             foreach (var reading in readings)
                 _latestByKey[BuildKey(reading.ReadingName, reading.Tags)] = reading;
 
             UpdateTimeseries(readings);
-            ProcessDriverConfirm(readings);
+            confirmed = ProcessDriverConfirm(readings);
         }
+
+        if (confirmed)
+            DriverMessagesChanged?.Invoke();
     }
 
     // The car sets driver_confirm for a couple of seconds after the driver presses the confirm
     // button; only the rising edge means "just pressed", since the reading keeps arriving at 1 for
     // as long as the flag is held. The car's dash only ever shows the latest message, so a press
     // acknowledges that one specifically, not every message sent since the last confirm.
-    // Must only be called while _lock is held.
-    private void ProcessDriverConfirm(List<Reading> readings)
+    // Must only be called while _lock is held; returns whether a message got confirmed, so the
+    // caller can raise DriverMessagesChanged after releasing the lock.
+    private bool ProcessDriverConfirm(List<Reading> readings)
     {
+        var confirmed = false;
+
         foreach (var reading in readings)
         {
             if (reading.ReadingName != "driver_confirm")
@@ -170,9 +185,15 @@ public class DataManager : IDisposable
                 .OrderByDescending(m => m.SentAt)
                 .FirstOrDefault();
 
-            if (latestUnconfirmed is not null)
-                latestUnconfirmed.ConfirmedAt = reading.Timestamp;
+            if (latestUnconfirmed is null)
+                continue;
+
+            var index = _driverMessages.IndexOf(latestUnconfirmed);
+            _driverMessages[index] = latestUnconfirmed with { ConfirmedAt = reading.Timestamp };
+            confirmed = true;
         }
+
+        return confirmed;
     }
 
     public DriverMessage AddDriverMessage(DriverMessageSeverity severity, string text)
@@ -188,6 +209,7 @@ public class DataManager : IDisposable
         lock (_lock)
             _driverMessages.Add(message);
 
+        DriverMessagesChanged?.Invoke();
         return message;
     }
 

@@ -193,6 +193,7 @@ class SolarCarState:
         self.cell_temp = [28.0] * NUM_CMU
 
         self.ac_lifesign = 0
+        self.dc_pack_seq = 0
 
         # Active fault overrides; empty/False = normal operation. Multiple faults can be
         # active at once, so each is a set of independent instances. Set by the scheduler
@@ -292,13 +293,13 @@ class SolarCarState:
 
         # Speed
         if active("Dc"):
-            # targetspeed is now decoded as raw/1000.0 with no unit label; transmit it as
-            # mm/s (km/h -> m/s -> *1000) so it has headroom up to ~236 km/h instead of
-            # overflowing the u16 at ~65.5 if it stayed a plain km/h*1000 value.
-            targetspeed_raw = int(self.target_speed * 1000 / 3.6)
+            # dc frame fix (981beeb): targetspeed is plain km/h again (no /1000 scaling), byte5
+            # is now dc_pack_seq (a per-frame sequence counter, not dc_drive), and speed moved
+            # back to byte6.
+            targetspeed_raw = int(self.target_speed)
             target_power_kw = self.target_speed / 100.0 * 1.5
             accel_display = int(clamp((self.target_speed - self.speed) * 5, -100, 100))
-            dc_drive = 1  # drive engaged; upstream layout doesn't document other values
+            self.dc_pack_seq = (self.dc_pack_seq + 1) & 0xFF
             flags = 0
             flags |= 1 << 0  # drive_direction: forward
             if self.motor_in_current > 0.5:
@@ -307,7 +308,7 @@ class SolarCarState:
                 flags |= 1 << 4  # driver_confirm
             speed_data = struct.pack("<HHbBBB",
                                       targetspeed_raw, int(target_power_kw * 1000),
-                                      accel_display, int(self.speed), dc_drive, flags)
+                                      accel_display, self.dc_pack_seq, int(self.speed), flags)
             packets.append(build_packet(DC_SPEED_ADDR, speed_data))
 
             # dc_motor_current/dc_battery_voltage/dc_pv_voltage are whole-number echoes of
@@ -327,10 +328,11 @@ class SolarCarState:
             if not active(f"Mppt{mppt_id}"):
                 continue
 
-            out_data = struct.pack(">ff", battery_voltage, self.mppt_current[mppt_id])
+            # mppt frame fix (3871eba): DecodeMppt now reads all its floats little-endian.
+            out_data = struct.pack("<ff", battery_voltage, self.mppt_current[mppt_id])
             packets.append(build_packet(addr_base | 0x1, out_data))
 
-            temp_data = struct.pack(">ff", self.mppt_mosfet_temp[mppt_id], self.mppt_controller_temp[mppt_id])
+            temp_data = struct.pack("<ff", self.mppt_mosfet_temp[mppt_id], self.mppt_controller_temp[mppt_id])
             packets.append(build_packet(addr_base | 0x2, temp_data))
 
             status_byte3 = 0

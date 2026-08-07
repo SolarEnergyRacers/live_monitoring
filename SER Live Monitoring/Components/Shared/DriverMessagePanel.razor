@@ -1,3 +1,4 @@
+@implements IDisposable
 @inject DataManager DataManager
 @inject SerialPortMonitorService SerialService
 
@@ -57,11 +58,16 @@
 @code {
     private string _text = "";
 
-    // DataManager owns the message history (in-memory, singleton) so it survives navigating away
-    // from and back to this page; this component holds no state of its own beyond the draft text.
     private List<DriverMessage> Messages => DataManager.GetDriverMessages();
 
     private bool CanSend => SerialService.CanSend && !string.IsNullOrWhiteSpace(_text);
+
+    protected override void OnInitialized()
+    {
+        DataManager.DriverMessagesChanged += OnDriverMessagesChanged;
+    }
+
+    private void OnDriverMessagesChanged() => InvokeAsync(StateHasChanged);
 
     private void Send(DriverMessageSeverity severity)
     {
@@ -78,8 +84,6 @@
         _text = "";
     }
 
-    // The wire protocol is one command per line - strip embedded newlines so a pasted multi-line
-    // message can't be split into multiple commands on the car's side.
     private static string SanitizeForWire(string text) => text.Trim().Replace("\r", "").Replace("\n", " ");
 
     private static string SeverityIcon(DriverMessageSeverity severity)
@@ -87,4 +91,9 @@
 
     private static MudBlazor.Color SeverityColor(DriverMessageSeverity severity)
         => severity == DriverMessageSeverity.Warn ? MudBlazor.Color.Warning : MudBlazor.Color.Info;
+
+    public void Dispose()
+    {
+        DataManager.DriverMessagesChanged -= OnDriverMessagesChanged;
+    }
 }
