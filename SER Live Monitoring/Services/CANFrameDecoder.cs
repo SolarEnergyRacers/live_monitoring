@@ -242,11 +242,11 @@ public class CANFrameDecoder : IDataDecoder
                 readings.Add(NewReading(ts, "dc_deceleration", GetInt(data, 16, false, 3)));
                 break;
             case 0x1:
-                readings.Add(NewReading(ts, "targetspeed", GetInt(data, 16, false, 0) / 1000.0));
+                readings.Add(NewReading(ts, "targetspeed", GetInt(data, 16, false, 0)));
                 readings.Add(NewReading(ts, "targetpower", GetInt(data, 16, false, 1) / 1000.0));
                 readings.Add(NewReading(ts, "accel_display", GetInt(data, 8, true, 4)));
-                readings.Add(NewReading(ts, "speed", GetInt(data, 8, false, 5), "km/h"));
-                readings.Add(NewReading(ts, "dc_drive", GetInt(data, 8, false, 6)));
+                readings.Add(NewReading(ts, "dc_pack_seq", GetInt(data, 8, false, 5)));
+                readings.Add(NewReading(ts, "speed", GetInt(data, 8, false, 6), "km/h"));
 
                 // drive_direction: 1 = fwd, 0 = rwd
                 readings.Add(NewReading(ts, "drive_direction", GetBit(data, 56) ? 1 : 0));
