@@ -9,12 +9,13 @@ PORT = "COM1"
 BAUDRATE = 115200
 INTERVAL = 1.0
 
-MPPT_ADDR = {1: 0x6A0, 2: 0x6B0, 3: 0x6C0, 4: 0x6D0}
+MPPT_ADDR = {1: 0x600, 2: 0x610, 3: 0x620, 4: 0x630}
 MPPT_MAX_CURRENT = {1: 3.0, 2: 2.8, 3: 3.1, 4: 2.9}  # amps, panel-to-panel variance
 
-AC_ADDR = 0x630
+AC_ADDR = 0x650
 MC_BASE_ADDR = 0x500
 DC_SPEED_ADDR = 0x661
+DC_POWER_ADDR = 0x662
 BMS_PACK_ADDR = 0x7FA
 BMS_PRECHARGE_ADDR = 0x7F7
 BMS_MINMAX_VOLTAGE_ADDR = 0x7F8
@@ -86,6 +87,14 @@ FAULT_IDLE_SECONDS = (9.0, 11.0)
 # blank out at once from stacked comm-loss picks.
 MAX_CONCURRENT_FAULTS = 3
 
+# --radio: simulates the real deployment's radio link, which (per SerialPortMonitorService's
+# resync/buffering logic) can deliver a frame truncated - the rest of the bytes never arrive,
+# so the frame is simply lost - or split across two separate over-the-air transmissions, where
+# both halves land but as two distinct chunks instead of one atomic write.
+RADIO_PARTIAL_PROB = 0.04
+RADIO_SPLIT_PROB = 0.12
+RADIO_SPLIT_DELAY_SECONDS = (0.005, 0.03)
+
 
 def clamp(value, lo, hi):
     return max(lo, min(hi, value))
@@ -106,6 +115,29 @@ def frame_addr_bytes(addr):
 def build_packet(addr, data):
     assert len(data) == 8
     return frame_addr_bytes(addr) + data + b"\x0a"
+
+
+def send_packet(ser, packet, radio_enabled):
+    """Writes one 11-byte packet to the serial port. With radio_enabled, occasionally
+    mangles delivery the way a real radio link would: truncates the frame and drops the
+    rest, or sends it whole but as two separate write() calls with a short gap between
+    them - both are exactly what SerialPortMonitorService's buffering/resync logic
+    (ExtractPackets) exists to handle."""
+    if not radio_enabled:
+        ser.write(packet)
+        return
+
+    roll = random.random()
+    if roll < RADIO_PARTIAL_PROB:
+        cut = random.randint(1, len(packet) - 1)
+        ser.write(packet[:cut])
+    elif roll < RADIO_PARTIAL_PROB + RADIO_SPLIT_PROB:
+        cut = random.randint(1, len(packet) - 1)
+        ser.write(packet[:cut])
+        time.sleep(random.uniform(*RADIO_SPLIT_DELAY_SECONDS))
+        ser.write(packet[cut:])
+    else:
+        ser.write(packet)
 
 
 class SolarCarState:
@@ -210,17 +242,34 @@ class SolarCarState:
 
         # Speed
         if active("Dc"):
+            # targetspeed is now decoded as raw/1000.0 with no unit label; transmit it as
+            # mm/s (km/h -> m/s -> *1000) so it has headroom up to ~236 km/h instead of
+            # overflowing the u16 at ~65.5 if it stayed a plain km/h*1000 value.
+            targetspeed_raw = int(self.target_speed * 1000 / 3.6)
             target_power_kw = self.target_speed / 100.0 * 1.5
             accel_display = int(clamp((self.target_speed - self.speed) * 5, -100, 100))
+            dc_drive = 1  # drive engaged; upstream layout doesn't document other values
             flags = 0
             flags |= 1 << 0  # drive_direction: forward
             if self.motor_in_current > 0.5:
                 flags |= 1 << 2  # motor_on
             flags |= 1 << 4  # driver_confirm
             speed_data = struct.pack("<HHbBBB",
-                                      int(self.target_speed), int(target_power_kw * 1000),
-                                      accel_display, 0, int(self.speed), flags)
+                                      targetspeed_raw, int(target_power_kw * 1000),
+                                      accel_display, int(self.speed), dc_drive, flags)
             packets.append(build_packet(DC_SPEED_ADDR, speed_data))
+
+            # dc_motor_current/dc_battery_voltage/dc_pv_voltage are whole-number echoes of
+            # the same shared measurements sent elsewhere (mc_curr_in, batt_volt, mppt_out_voltage).
+            dc_status_bits = 0
+            if self.motor_in_current > 0.5:
+                dc_status_bits |= 1 << 0  # dc_motor_on
+            dc_status_bits |= 1 << 1      # dc_battery_on (contactors closed / Run state)
+            dc_status_bits |= 1 << 3      # dc_pv_on (bit position per upstream decoder)
+            power_data = struct.pack("<HHHBB",
+                                      int(round(self.motor_in_current)), int(round(battery_voltage)),
+                                      int(round(battery_voltage)), dc_status_bits, 0)
+            packets.append(build_packet(DC_POWER_ADDR, power_data))
 
         # MPPT output/temps/status (voltage shared with battery bus)
         for mppt_id, addr_base in MPPT_ADDR.items():
@@ -456,6 +505,10 @@ def parse_args():
     parser.add_argument("--mode", choices=sorted(MODES), default="full",
                          help="Which devices to simulate: full (everything, default), "
                               "ac (AC controller only), ac_dc (AC + DC dash unit only)")
+    parser.add_argument("--radio", action="store_true",
+                         help="Simulate an unreliable radio link: some frames arrive truncated "
+                              "(rest of the bytes lost) and some arrive whole but split across "
+                              "two separate transmissions. Off by default (clean serial link).")
     return parser.parse_args()
 
 
@@ -467,8 +520,9 @@ def main():
     active_faults = []  # list of {"key", "label", "deactivate", "clear_at"}, several can overlap
     next_fault_at = time.monotonic() + random.uniform(*FAULT_IDLE_SECONDS)
 
+    radio_note = " with a simulated radio link (partial/split frames)" if args.radio else ""
     print(f"Solar car simulator running on {PORT} in '{args.mode}' mode "
-          f"({', '.join(sorted(enabled_devices))}) - Ctrl+C to stop.")
+          f"({', '.join(sorted(enabled_devices))}){radio_note} - Ctrl+C to stop.")
 
     with serial.Serial(PORT, BAUDRATE) as ser:
         next_tick = time.monotonic()
@@ -497,7 +551,8 @@ def main():
                 next_fault_at = now + random.uniform(*FAULT_IDLE_SECONDS)
 
             packets = state.build_packets()
-            ser.write(b"".join(packets))
+            for packet in packets:
+                send_packet(ser, packet, args.radio)
 
             next_tick += INTERVAL
             time.sleep(max(0.0, next_tick - time.monotonic()))
