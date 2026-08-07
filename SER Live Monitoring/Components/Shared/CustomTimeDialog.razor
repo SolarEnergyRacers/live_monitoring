@@ -1,0 +1,28 @@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudDatePicker Label="Date" @bind-Date="_date" />
+            <MudTimePicker Label="Time" @bind-Time="_time" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="MudBlazor.Color.Primary" Variant="Variant.Filled" OnClick="Submit">Add</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private DateTime? _date = DateTime.Today;
+    private TimeSpan? _time = DateTime.Now.TimeOfDay;
+
+    private void Submit()
+    {
+        var date = (_date ?? DateTime.Today).Date;
+        var time = _time ?? DateTime.Now.TimeOfDay;
+        MudDialog.Close(DialogResult.Ok(date + time));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

@@ -3,6 +3,8 @@
 @inject SerialPortMonitorService SerialService
 @inject DataManager DataManager
 @inject SettingsService SettingsService
+@inject EventTimestampService EventTimestampService
+@inject IDialogService DialogService
 
 <PageTitle>Live Overview</PageTitle>
 
@@ -116,6 +118,71 @@
     </MudItem>
 </MudGrid>
 
+<MudPaper Class="pa-4 rounded-lg mt-4" Elevation="2">
+    <MudText Typo="Typo.subtitle1" Class="mb-3">Event Timestamps</MudText>
+
+    <MudGrid>
+        <MudItem xs="12" md="4">
+            <MudStack Spacing="3">
+                <MudTextField T="string" Label="Event Name" @bind-Value="_eventName" Variant="Variant.Outlined" />
+
+                <MudStack Row="true" Spacing="2">
+                    <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" StartIcon="@Icons.Material.Filled.AddCircle"
+                               OnClick="AddNow" Disabled="string.IsNullOrWhiteSpace(_eventName)" FullWidth="true">
+                        Now
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Schedule"
+                               OnClick="AddCustom" Disabled="string.IsNullOrWhiteSpace(_eventName)" FullWidth="true">
+                        Custom Time…
+                    </MudButton>
+                </MudStack>
+
+                <MudTable Items="Events" Dense="true" Hover="true" Height="280px" FixedHeader="true">
+                    <HeaderContent>
+                        <MudTh>Name</MudTh>
+                        <MudTh>Time</MudTh>
+                        <MudTh></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Name">@context.Name</MudTd>
+                        <MudTd DataLabel="Time">@context.Timestamp.ToString("g")</MudTd>
+                        <MudTd>
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="MudBlazor.Size.Small"
+                                           Color="MudBlazor.Color.Error" OnClick="() => DeleteEvent(context.Id)" />
+                        </MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent>
+                        <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">No events recorded yet</MudText>
+                    </NoRecordsContent>
+                </MudTable>
+            </MudStack>
+        </MudItem>
+
+        <MudItem xs="12" md="8">
+            <div style="height: 380px">
+                @if (SpeedHistory.Count >= 2)
+                {
+                    <ApexChart TItem="TimeSeriesPoint" @ref="_speedChart" Height="380" Options="_speedChartOptions">
+                        <ApexPointSeries TItem="TimeSeriesPoint"
+                                         Items="SpeedHistory"
+                                         Name="Speed"
+                                         SeriesType="SeriesType.Line"
+                                         XValue="p => ToEpochMs(p.Timestamp)"
+                                         YValue="p => (decimal)p.Value"
+                                         ShowDataLabels="false" />
+                    </ApexChart>
+                }
+                else
+                {
+                    <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center" Style="height: 100%">
+                        <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">Waiting for data…</MudText>
+                    </MudStack>
+                }
+            </div>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
 @code {
     private static readonly TimeSpan AvgWindow = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan SparkWindow = TimeSpan.FromSeconds(60);
@@ -179,21 +246,120 @@
 
     private List<double> SparkSeries(StatDef stat) => DataManager.GetSeries(stat.Series, SparkWindow);
 
+    private static readonly TimeSpan SpeedChartWindow = TimeSpan.FromHours(2);
+
+    private string _eventName = "";
+    private ApexChart<TimeSeriesPoint>? _speedChart;
+    private ApexChartOptions<TimeSeriesPoint> _speedChartOptions = new();
+
+    private List<EventTimestamp> Events => EventTimestampService.GetAll();
+    private List<TimeSeriesPoint> SpeedHistory => DataManager.GetSpeedHistory(SpeedChartWindow);
+
+    private static long ToEpochMs(DateTime dt) => new DateTimeOffset(dt).ToUnixTimeMilliseconds();
+
+    private void BuildSpeedChartOptions()
+    {
+        var windowStart = DateTime.Now - SpeedChartWindow;
+
+        _speedChartOptions = new ApexChartOptions<TimeSeriesPoint>
+        {
+            Chart = new Chart
+            {
+                Toolbar = new Toolbar { Show = false },
+                Animations = new Animations { Enabled = false }
+            },
+            Stroke = new Stroke { Width = 2, Curve = Curve.Smooth },
+            Colors = new List<string> { "#42A5F5" },
+            Xaxis = new XAxis
+            {
+                Type = XAxisType.Datetime,
+                AxisTicks = new AxisTicks { Show = true, Color = "#FFFFFF" },
+                Labels = new XAxisLabels { Style = new AxisLabelStyle { Colors = "#FFFFFF" } }
+            },
+            Yaxis = new List<YAxis>
+            {
+                new()
+                {
+                    Title = new AxisTitle { Text = "km/h", Style = new AxisTitleStyle { Color = "#FFFFFF" } },
+                    DecimalsInFloat = 0,
+                    AxisBorder = new AxisBorder { Show = true, Color = "#FFFFFF" },
+                    AxisTicks = new AxisTicks { Show = true, Color = "#FFFFFF" },
+                    Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = "#FFFFFF" } }
+                }
+            },
+            Annotations = new Annotations
+            {
+                Xaxis = Events
+                    .Where(e => e.Timestamp >= windowStart)
+                    .Select(e => new AnnotationsXAxis
+                    {
+                        X = ToEpochMs(e.Timestamp),
+                        BorderColor = "#FFC107",
+                        Label = new Label
+                        {
+                            Text = e.Name,
+                            Style = new Style { Color = "#000000", Background = "#FFC107" }
+                        }
+                    })
+                    .ToList()
+            }
+        };
+    }
+
+    private void AddNow()
+    {
+        if (string.IsNullOrWhiteSpace(_eventName))
+            return;
+
+        EventTimestampService.Add(_eventName.Trim(), DateTime.Now);
+        _eventName = "";
+    }
+
+    private async Task AddCustom()
+    {
+        if (string.IsNullOrWhiteSpace(_eventName))
+            return;
+
+        var dialogRef = await DialogService.ShowAsync(typeof(CustomTimeDialog), "Choose Time");
+        var result = await dialogRef.Result;
+
+        if (result is { Canceled: false, Data: DateTime chosen })
+        {
+            EventTimestampService.Add(_eventName.Trim(), chosen);
+            _eventName = "";
+        }
+    }
+
+    private void DeleteEvent(long id) => EventTimestampService.Delete(id);
+
     protected override void OnInitialized()
     {
         RefreshPorts();
         SerialService.StatusChanged += OnStatusChanged;
+        BuildSpeedChartOptions();
 
         // redraw ui at 2Hz, to prevent redrawing for every CAN frame received
         _uiRefreshTimer = new System.Threading.Timer(
             _ =>
             {
                 _blinkPhase = !_blinkPhase;
+                BuildSpeedChartOptions();
                 InvokeAsync(StateHasChanged);
             },
             null,
             TimeSpan.FromMilliseconds(500),
             TimeSpan.FromMilliseconds(500));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender || _speedChart is null)
+            return;
+
+        // Push the freshly-rebuilt annotations/window and the latest speed samples to the chart -
+        // the ApexChart component doesn't pick up parameter changes on its own (see StatChartTile).
+        await _speedChart.UpdateOptionsAsync(redrawPaths: true, animate: false, updateSyncedCharts: false);
+        await _speedChart.UpdateSeriesAsync();
     }
 
     private void RefreshPorts()

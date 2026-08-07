@@ -11,7 +11,9 @@
 
   <ItemGroup>
     <PackageReference Include="Blazor-ApexCharts" Version="7.0.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
     <PackageReference Include="MudBlazor" Version="9.7.0" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
     <PackageReference Include="System.IO.Ports" Version="10.0.10" />
   </ItemGroup>
 

@@ -12,6 +12,12 @@ public class SettingsService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
+    // Default location for persisted timeseries data (see PersistenceService) when AppSettings.DataDirectory
+    // is left blank. Lives next to settings.json so both stay under the same app-data root by default.
+    public static string DefaultDataDirectory { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "SER Live Monitoring", "data");
+
     private readonly Lock _lock = new();
     private readonly string _filePath;
     private AppSettings _current;
