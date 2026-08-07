@@ -1,0 +1,90 @@
+@inject DataManager DataManager
+@inject SerialPortMonitorService SerialService
+
+<MudPaper Class="pa-4 rounded-lg" Elevation="2">
+    <MudText Typo="Typo.subtitle1" Class="mb-3">Driver Messages</MudText>
+
+    <MudStack Spacing="2">
+        <MudTextField T="string" Label="Message" @bind-Value="_text" Variant="Variant.Outlined" Immediate="true" />
+
+        <MudStack Row="true" Spacing="2">
+            <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Info" StartIcon="@Icons.Material.Filled.Info"
+                       Size="MudBlazor.Size.Small" FullWidth="true" Disabled="@(!CanSend)"
+                       OnClick="@(() => Send(DriverMessageSeverity.Info))">
+                Info
+            </MudButton>
+            <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Warning" StartIcon="@Icons.Material.Filled.Warning"
+                       Size="MudBlazor.Size.Small" FullWidth="true" Disabled="@(!CanSend)"
+                       OnClick="@(() => Send(DriverMessageSeverity.Warn))">
+                Warn
+            </MudButton>
+        </MudStack>
+
+        <MudTable Items="Messages" Dense="true" Hover="true" Height="220px" FixedHeader="true">
+            <HeaderContent>
+                <MudTh></MudTh>
+                <MudTh>Message</MudTh>
+                <MudTh>Confirmed</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>
+                    <MudIcon Icon="@SeverityIcon(context.Severity)" Color="@SeverityColor(context.Severity)" Size="MudBlazor.Size.Small" />
+                </MudTd>
+                <MudTd DataLabel="Message">
+                    <MudText Typo="Typo.body2">@context.Text</MudText>
+                    <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">@context.SentAt.ToString("HH:mm:ss")</MudText>
+                </MudTd>
+                <MudTd DataLabel="Confirmed">
+                    @if (context.ConfirmedAt is { } confirmedAt)
+                    {
+                        <MudTooltip Text="@confirmedAt.ToString("g")">
+                            <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="MudBlazor.Color.Success" Size="MudBlazor.Size.Small" />
+                        </MudTooltip>
+                    }
+                    else
+                    {
+                        <MudIcon Icon="@Icons.Material.Filled.RadioButtonUnchecked" Color="MudBlazor.Color.Default" Size="MudBlazor.Size.Small" />
+                    }
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">No messages sent yet</MudText>
+            </NoRecordsContent>
+        </MudTable>
+    </MudStack>
+</MudPaper>
+
+@code {
+    private string _text = "";
+
+    // DataManager owns the message history (in-memory, singleton) so it survives navigating away
+    // from and back to this page; this component holds no state of its own beyond the draft text.
+    private List<DriverMessage> Messages => DataManager.GetDriverMessages();
+
+    private bool CanSend => SerialService.CanSend && !string.IsNullOrWhiteSpace(_text);
+
+    private void Send(DriverMessageSeverity severity)
+    {
+        var text = SanitizeForWire(_text);
+        if (text.Length == 0 || !SerialService.CanSend)
+            return;
+
+        if (severity == DriverMessageSeverity.Warn)
+            SerialService.SendWarn(text);
+        else
+            SerialService.SendInfo(text);
+
+        DataManager.AddDriverMessage(severity, text);
+        _text = "";
+    }
+
+    // The wire protocol is one command per line - strip embedded newlines so a pasted multi-line
+    // message can't be split into multiple commands on the car's side.
+    private static string SanitizeForWire(string text) => text.Trim().Replace("\r", "").Replace("\n", " ");
+
+    private static string SeverityIcon(DriverMessageSeverity severity)
+        => severity == DriverMessageSeverity.Warn ? Icons.Material.Filled.Warning : Icons.Material.Filled.Info;
+
+    private static MudBlazor.Color SeverityColor(DriverMessageSeverity severity)
+        => severity == DriverMessageSeverity.Warn ? MudBlazor.Color.Warning : MudBlazor.Color.Info;
+}

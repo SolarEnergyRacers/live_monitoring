@@ -105,6 +105,10 @@ public class DataManager : IDisposable
     private readonly Lock _lock = new();
     private readonly Dictionary<string, Reading> _latestByKey = new();
 
+    // Driver messages sent to the car's display, in-memory only (not persisted across restarts).
+    private readonly List<DriverMessage> _driverMessages = new();
+    private double _lastDriverConfirm;
+
     // Keyed storage (rather than one field per series) so PersistenceService can enumerate and
     // restore every series generically, without a parallel hardcoded list to keep in sync.
     private readonly Dictionary<string, TimeSeries> _series = new()
@@ -139,7 +143,58 @@ public class DataManager : IDisposable
                 _latestByKey[BuildKey(reading.ReadingName, reading.Tags)] = reading;
 
             UpdateTimeseries(readings);
+            ProcessDriverConfirm(readings);
         }
+    }
+
+    // The car sets driver_confirm for a couple of seconds after the driver presses the confirm
+    // button; only the rising edge means "just pressed", since the reading keeps arriving at 1 for
+    // as long as the flag is held. The car's dash only ever shows the latest message, so a press
+    // acknowledges that one specifically, not every message sent since the last confirm.
+    // Must only be called while _lock is held.
+    private void ProcessDriverConfirm(List<Reading> readings)
+    {
+        foreach (var reading in readings)
+        {
+            if (reading.ReadingName != "driver_confirm")
+                continue;
+
+            var rising = reading.Value != 0 && _lastDriverConfirm == 0;
+            _lastDriverConfirm = reading.Value;
+
+            if (!rising)
+                continue;
+
+            var latestUnconfirmed = _driverMessages
+                .Where(m => m.ConfirmedAt is null)
+                .OrderByDescending(m => m.SentAt)
+                .FirstOrDefault();
+
+            if (latestUnconfirmed is not null)
+                latestUnconfirmed.ConfirmedAt = reading.Timestamp;
+        }
+    }
+
+    public DriverMessage AddDriverMessage(DriverMessageSeverity severity, string text)
+    {
+        var message = new DriverMessage
+        {
+            Id = Guid.NewGuid(),
+            Severity = severity,
+            Text = text,
+            SentAt = DateTime.Now
+        };
+
+        lock (_lock)
+            _driverMessages.Add(message);
+
+        return message;
+    }
+
+    public List<DriverMessage> GetDriverMessages()
+    {
+        lock (_lock)
+            return _driverMessages.OrderByDescending(m => m.SentAt).ToList();
     }
 
     private void OnReadingReceived(List<Reading> readings)

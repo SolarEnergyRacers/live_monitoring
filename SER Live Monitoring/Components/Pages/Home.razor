@@ -183,6 +183,12 @@
     </MudGrid>
 </MudPaper>
 
+<MudGrid Class="mt-4">
+    <MudItem xs="12" sm="6" md="4">
+        <DriverMessagePanel />
+    </MudItem>
+</MudGrid>
+
 @code {
     private static readonly TimeSpan AvgWindow = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan SparkWindow = TimeSpan.FromSeconds(60);
@@ -251,6 +257,8 @@
     private string _eventName = "";
     private ApexChart<TimeSeriesPoint>? _speedChart;
     private ApexChartOptions<TimeSeriesPoint> _speedChartOptions = new();
+    private bool _updatingChart;
+    private bool _disposed;
 
     private List<EventTimestamp> Events => EventTimestampService.GetAll();
     private List<TimeSeriesPoint> SpeedHistory => DataManager.GetSpeedHistory(SpeedChartWindow);
@@ -342,6 +350,9 @@
         _uiRefreshTimer = new System.Threading.Timer(
             _ =>
             {
+                if (_disposed)
+                    return;
+
                 _blinkPhase = !_blinkPhase;
                 BuildSpeedChartOptions();
                 InvokeAsync(StateHasChanged);
@@ -353,13 +364,26 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender || _speedChart is null)
+        // _updatingChart guards against the 500ms timer re-entering before the previous JS interop
+        // round-trip finishes. Both awaits can throw TaskCanceledException (or JSDisconnectedException)
+        // if the user navigates away - or the circuit disconnects - mid-call, which is benign: the
+        // chart is being torn down anyway, so there's nothing to recover.
+        if (firstRender || _speedChart is null || _updatingChart || _disposed)
             return;
 
-        // Push the freshly-rebuilt annotations/window and the latest speed samples to the chart -
-        // the ApexChart component doesn't pick up parameter changes on its own (see StatChartTile).
-        await _speedChart.UpdateOptionsAsync(redrawPaths: true, animate: false, updateSyncedCharts: false);
-        await _speedChart.UpdateSeriesAsync();
+        _updatingChart = true;
+        try
+        {
+            await _speedChart.UpdateOptionsAsync(redrawPaths: true, animate: false, updateSyncedCharts: false);
+            await _speedChart.UpdateSeriesAsync();
+        }
+        catch (Exception ex) when (ex is TaskCanceledException or JSDisconnectedException)
+        {
+        }
+        finally
+        {
+            _updatingChart = false;
+        }
     }
 
     private void RefreshPorts()
@@ -384,6 +408,7 @@
 
     public void Dispose()
     {
+        _disposed = true;
         _uiRefreshTimer?.Dispose();
         SerialService.StatusChanged -= OnStatusChanged;
     }

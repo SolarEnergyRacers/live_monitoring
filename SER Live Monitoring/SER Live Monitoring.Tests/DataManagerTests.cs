@@ -77,4 +77,56 @@ public class DataManagerTests
 
         Assert.Equal(400, total[^1]);
     }
+
+    [Fact]
+    public void AddDriverMessage_AppearsUnconfirmed()
+    {
+        var message = _dataManager.AddDriverMessage(DriverMessageSeverity.Info, "pit stop");
+
+        var messages = _dataManager.GetDriverMessages();
+
+        Assert.Single(messages);
+        Assert.Equal(message.Id, messages[0].Id);
+        Assert.Null(messages[0].ConfirmedAt);
+    }
+
+    [Fact]
+    public void DriverConfirmRisingEdge_ConfirmsLatestUnconfirmedMessage()
+    {
+        _dataManager.AddDriverMessage(DriverMessageSeverity.Warn, "charge stop");
+        var confirmTime = DateTime.Now;
+
+        _dataManager.Ingest([NewReading(confirmTime, "driver_confirm", 1)]);
+
+        var message = _dataManager.GetDriverMessages().Single();
+        Assert.Equal(confirmTime, message.ConfirmedAt);
+    }
+
+    [Fact]
+    public void DriverConfirmHeldHigh_DoesNotConfirmMessagesSentAfterTheEdge()
+    {
+        // driver_confirm stays at 1 for a couple of seconds once pressed; only the 0->1 transition
+        // should count as "just pressed", otherwise a message sent while the flag is still high
+        // would be wrongly marked confirmed without the driver ever having pressed anything for it.
+        _dataManager.Ingest([NewReading(DateTime.Now, "driver_confirm", 1)]);
+        _dataManager.Ingest([NewReading(DateTime.Now, "driver_confirm", 1)]);
+
+        var laterMessage = _dataManager.AddDriverMessage(DriverMessageSeverity.Info, "sent after the press");
+        _dataManager.Ingest([NewReading(DateTime.Now, "driver_confirm", 1)]);
+
+        Assert.Null(_dataManager.GetDriverMessages().Single(m => m.Id == laterMessage.Id).ConfirmedAt);
+    }
+
+    [Fact]
+    public void DriverConfirm_OnlyConfirmsLatestMessage_OlderUnconfirmedStaysUnconfirmed()
+    {
+        var older = _dataManager.AddDriverMessage(DriverMessageSeverity.Info, "first");
+        var newer = _dataManager.AddDriverMessage(DriverMessageSeverity.Info, "second");
+
+        _dataManager.Ingest([NewReading(DateTime.Now, "driver_confirm", 1)]);
+
+        var messages = _dataManager.GetDriverMessages().ToDictionary(m => m.Id);
+        Assert.NotNull(messages[newer.Id].ConfirmedAt);
+        Assert.Null(messages[older.Id].ConfirmedAt);
+    }
 }

@@ -67,6 +67,36 @@ public class SerialPortMonitorService : IDisposable
         StatusChanged?.Invoke();
     }
 
+    // Driver info display protocol: ':<text>' shows driver info text, '!<text>' shows driver warn
+    // text, 'u'/'u -' toggles the green speed-up arrow on/off, 'd'/'d -' toggles the red speed-down
+    // arrow. Each command is one line, terminated the same way as NewLine above.
+    public bool CanSend => _serialPort is { IsOpen: true };
+
+    public void SendInfo(string text) => SendCommand($":{text}");
+
+    public void SendWarn(string text) => SendCommand($"!{text}");
+
+    public void SendUpArrow(bool on) => SendCommand(on ? "u" : "u -");
+
+    public void SendDownArrow(bool on) => SendCommand(on ? "d" : "d -");
+
+    private void SendCommand(string command)
+    {
+        if (_serialPort is not { IsOpen: true } port)
+            return;
+
+        try
+        {
+            port.WriteLine(command);
+        }
+        catch (Exception ex)
+        {
+            LastError = ex.Message;
+            Status = SerialConnectionStatus.Error;
+            StatusChanged?.Invoke();
+        }
+    }
+
     public void Disconnect()
     {
         if (_serialPort is null)
