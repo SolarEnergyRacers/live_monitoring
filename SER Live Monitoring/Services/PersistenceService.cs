@@ -15,31 +15,26 @@ public class PersistenceService : IDisposable
     private static readonly TimeSpan FlushInterval = TimeSpan.FromSeconds(3);
 
     private readonly DataManager _dataManager;
-    private readonly SettingsService _settingsService;
     private readonly Dictionary<string, int> _flushedCounts = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _flushLoop;
     private readonly Lock _flushLock = new();
-    private string _activeDataDirectory;
+    private readonly string _dataDirectory;
 
-    public PersistenceService(DataManager dataManager, SettingsService settingsService)
+    public PersistenceService(DataManager dataManager, IConfiguration configuration)
     {
         _dataManager = dataManager;
-        _settingsService = settingsService;
+        _dataDirectory = ResolveDataDirectory(configuration);
 
-        _activeDataDirectory = DataDirectory;
         LoadAll();
 
         _flushLoop = Task.Run(() => RunFlushLoopAsync(_cts.Token));
     }
 
-    private string DataDirectory
+    public static string ResolveDataDirectory(IConfiguration configuration)
     {
-        get
-        {
-            var configured = _settingsService.Current.DataDirectory;
-            return string.IsNullOrWhiteSpace(configured) ? SettingsService.DefaultDataDirectory : configured;
-        }
+        var configured = configuration["Storage:DataDirectory"];
+        return string.IsNullOrWhiteSpace(configured) ? SettingsService.DefaultDataDirectory : configured;
     }
 
     // Forces an immediate flush instead of waiting for the next timer tick. Safe to call anytime.
@@ -51,7 +46,7 @@ public class PersistenceService : IDisposable
 
     private void LoadAll()
     {
-        var dir = _activeDataDirectory;
+        var dir = _dataDirectory;
         if (!Directory.Exists(dir))
             return;
 
@@ -104,32 +99,8 @@ public class PersistenceService : IDisposable
 
     private void FlushAll()
     {
-        var dir = DataDirectory;
-
-        if (dir != _activeDataDirectory)
-        {
-            // Data directory changed since the last flush (e.g. edited on the Settings page).
-            // Appending just the new tail into the new location would leave a file whose header
-            // claims data starting at the series' original timestamp but whose body only has the
-            // latest few samples - do a full re-dump instead so every file is self-consistent.
-            FullDump(dir);
-            _activeDataDirectory = dir;
-            return;
-        }
-
         foreach (var (name, startTimestamp, newPoints) in _dataManager.DrainNewPoints(_flushedCounts))
-            TryWrite(dir, name, startTimestamp, newPoints, append: true);
-    }
-
-    private void FullDump(string dir)
-    {
-        var freshCounts = new Dictionary<string, int>();
-        foreach (var (name, startTimestamp, allPoints) in _dataManager.DrainNewPoints(freshCounts))
-            TryWrite(dir, name, startTimestamp, allPoints, append: false);
-
-        _flushedCounts.Clear();
-        foreach (var (name, count) in freshCounts)
-            _flushedCounts[name] = count;
+            TryWrite(_dataDirectory, name, startTimestamp, newPoints, append: true);
     }
 
     private static void TryWrite(string dir, string name, long startTimestamp, double[] points, bool append)

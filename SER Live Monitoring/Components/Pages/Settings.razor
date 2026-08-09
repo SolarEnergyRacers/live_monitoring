@@ -42,16 +42,6 @@
         </MudPaper>
     </MudItem>
 
-    <MudItem xs="12">
-        <MudPaper Class="pa-4 rounded-lg" Elevation="2">
-            <MudText Typo="Typo.subtitle1" Class="mb-1">Data Storage</MudText>
-            <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary" Class="mb-3">
-                Folder where recorded timeseries history is saved so it survives an app restart. Leave blank to use the default location.
-            </MudText>
-            <MudTextField T="string" Label="Data Directory" @bind-Value="_dataDirectory"
-                          Placeholder="@DefaultDataDirectory" Variant="Variant.Outlined" />
-        </MudPaper>
-    </MudItem>
 </MudGrid>
 
 <MudStack Row="true" Spacing="2" Class="mt-4">
@@ -83,16 +73,10 @@
 
     private List<AddressField> _addressFields = [];
     private WarningThresholds _thresholds = new();
-    private string _dataDirectory = "";
-
-    private static string DefaultDataDirectory => SER_Live_Monitoring.Services.SettingsService.DefaultDataDirectory;
-
     protected override void OnInitialized() => LoadFromSettings(SettingsService.Current);
 
     private void LoadFromSettings(AppSettings settings)
     {
-        _dataDirectory = settings.DataDirectory;
-
         // Clone rather than bind directly to the live settings objects - CANFrameDecoder and
         // VehicleWarnings read those concurrently, so mutating them keystroke-by-keystroke before
         // Save is clicked would be both a UX surprise and a thread-safety bug.
@@ -139,7 +123,7 @@
             return;
         }
 
-        SettingsService.Update(new AppSettings { CanAddresses = addresses, WarningThresholds = _thresholds, DataDirectory = _dataDirectory.Trim() });
+        SettingsService.Update(new AppSettings { CanAddresses = addresses, WarningThresholds = _thresholds });
         Snackbar.Add("Settings saved", Severity.Success);
     }
 

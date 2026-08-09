@@ -27,7 +27,4 @@ public class AppSettings
 {
     public CanAddressSettings CanAddresses { get; set; } = new();
     public WarningThresholds WarningThresholds { get; set; } = new();
-
-    // Where timeseries history is persisted to disk. Empty means use SettingsService.DefaultDataDirectory.
-    public string DataDirectory { get; set; } = "";
 }

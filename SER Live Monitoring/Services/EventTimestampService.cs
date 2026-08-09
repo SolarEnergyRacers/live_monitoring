@@ -7,8 +7,8 @@ namespace SER_Live_Monitoring.Services;
 /// <summary>
 /// Persists user-marked event timestamps (e.g. "driver change", "charge stop") to a SQLite database
 /// so they survive a restart, and are loaded automatically. The DB path is resolved once at startup
-/// from AppSettings.DataDirectory - changing that setting later takes effect after a restart, same
-/// as it would for a database file rather than the appendable timeseries logs.
+/// from appsettings (Storage:DataDirectory) - changing that server-side setting later takes effect
+/// after a restart, same as it would for a database file rather than the appendable timeseries logs.
 /// </summary>
 public class EventTimestampService : IDisposable
 {

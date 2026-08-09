@@ -19,10 +19,8 @@ builder.Services.AddSingleton<DataManager>();
 builder.Services.AddSingleton<PersistenceService>();
 builder.Services.AddSingleton(sp =>
 {
-    var settings = sp.GetRequiredService<SettingsService>();
-    var dataDir = string.IsNullOrWhiteSpace(settings.Current.DataDirectory)
-        ? SettingsService.DefaultDataDirectory
-        : settings.Current.DataDirectory;
+    var config = sp.GetRequiredService<IConfiguration>();
+    var dataDir = PersistenceService.ResolveDataDirectory(config);
     return new EventTimestampService(Path.Combine(dataDir, "events.db"));
 });
 //builder.Services.AddSingleton<IReadingCache>(sp => sp.GetRequiredService<DataManager>());

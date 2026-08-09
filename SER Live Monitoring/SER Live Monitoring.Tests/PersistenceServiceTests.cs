@@ -1,5 +1,6 @@
 using SER_Live_Monitoring.Models;
 using SER_Live_Monitoring.Services;
+using Microsoft.Extensions.Configuration;
 
 namespace SER_Live_Monitoring.Tests;
 
@@ -17,6 +18,14 @@ public class PersistenceServiceTests : IDisposable
     private static DataManager NewDataManager(SettingsService settings)
         => new(new SerialPortMonitorService(new CANFrameDecoder(settings)));
 
+    private static IConfiguration NewStorageConfig(string dataDir)
+        => new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Storage:DataDirectory"] = dataDir
+            })
+            .Build();
+
     private static Reading NewReading(DateTime ts, string name, double value, params (string Key, string Value)[] tags)
         => new() { Timestamp = ts, ReadingName = name, Value = value, Unit = "", Tags = tags.ToDictionary(t => t.Key, t => t.Value) };
 
@@ -25,7 +34,7 @@ public class PersistenceServiceTests : IDisposable
     {
         var dataDir = NewTempDir();
         var settings = new SettingsService(TestSettingsPath.NewTempPath());
-        settings.Update(new AppSettings { DataDirectory = dataDir });
+        var config = NewStorageConfig(dataDir);
 
         var now = DateTime.Now;
         var dataManager = NewDataManager(settings);
@@ -36,7 +45,7 @@ public class PersistenceServiceTests : IDisposable
             NewReading(now, "speed", 30),
         ]);
 
-        using (var persistence = new PersistenceService(dataManager, settings))
+        using (var persistence = new PersistenceService(dataManager, config))
             persistence.Flush();
 
         Assert.True(File.Exists(Path.Combine(dataDir, "speed.bin")));
@@ -44,7 +53,7 @@ public class PersistenceServiceTests : IDisposable
         // Fresh DataManager/PersistenceService pair pointed at the same directory, simulating an
         // app restart - PersistenceService's constructor loads history before anything else runs.
         var reloadedManager = NewDataManager(settings);
-        using var reloadedPersistence = new PersistenceService(reloadedManager, settings);
+        using var reloadedPersistence = new PersistenceService(reloadedManager, config);
 
         var avg = reloadedManager.GetAverage(ChartSeries.Speed, TimeSpan.FromSeconds(15));
 
@@ -60,38 +69,31 @@ public class PersistenceServiceTests : IDisposable
         File.WriteAllBytes(Path.Combine(dataDir, "speed.bin"), [1, 2, 3]); // too short / bad magic
 
         var settings = new SettingsService(TestSettingsPath.NewTempPath());
-        settings.Update(new AppSettings { DataDirectory = dataDir });
+        var config = NewStorageConfig(dataDir);
 
         var dataManager = NewDataManager(settings);
-        using var persistence = new PersistenceService(dataManager, settings);
+        using var persistence = new PersistenceService(dataManager, config);
 
         Assert.Null(dataManager.GetAverage(ChartSeries.Speed, TimeSpan.FromSeconds(15)));
     }
 
     [Fact]
-    public void DataDirectoryChanged_FullyDumpsIntoNewLocation()
+    public void UsesConfiguredDataDirectory_ForWritesAndReload()
     {
-        var dirA = NewTempDir();
-        var dirB = NewTempDir();
+        var dataDir = NewTempDir();
         var settings = new SettingsService(TestSettingsPath.NewTempPath());
-        settings.Update(new AppSettings { DataDirectory = dirA });
+        var config = NewStorageConfig(dataDir);
 
         var now = DateTime.Now;
         var dataManager = NewDataManager(settings);
         dataManager.Ingest([NewReading(now, "speed", 42)]);
 
-        using var persistence = new PersistenceService(dataManager, settings);
+        using var persistence = new PersistenceService(dataManager, config);
         persistence.Flush();
-        Assert.True(File.Exists(Path.Combine(dirA, "speed.bin")));
-
-        // Simulate editing the Data Directory field on the Settings page and saving.
-        settings.Update(new AppSettings { DataDirectory = dirB });
-        persistence.Flush();
-
-        Assert.True(File.Exists(Path.Combine(dirB, "speed.bin")));
+        Assert.True(File.Exists(Path.Combine(dataDir, "speed.bin")));
 
         var reloadedManager = NewDataManager(settings);
-        using var reloadedPersistence = new PersistenceService(reloadedManager, settings);
+        using var reloadedPersistence = new PersistenceService(reloadedManager, config);
         Assert.Equal(42, reloadedManager.GetAverage(ChartSeries.Speed, TimeSpan.FromSeconds(15)));
     }
 
