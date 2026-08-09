@@ -40,43 +40,47 @@
         <MudPaper Class="pa-4 rounded-lg" Elevation="2">
             <MudText Typo="Typo.subtitle1" Class="mb-3">Serial Connection</MudText>
             <MudStack Spacing="3">
-                <MudSelect T="string" Label="COM Port" @bind-Value="_selectedPort" Disabled="_isConnected">
-                    @foreach (var port in _availablePorts)
-                    {
-                        <MudSelectItem T="string" Value="@port">@port</MudSelectItem>
-                    }
-                </MudSelect>
+                <MudGrid Spacing="2">
+                    <MudItem xs="6">
+                        <MudStack Row="true" Spacing="1" AlignItems="AlignItems.End">
+                            <MudSelect T="string" Label="COM Port" @bind-Value="_selectedPort" Disabled="_isConnected" Class="flex-grow-1">
+                                @foreach (var port in _availablePorts)
+                                {
+                                    <MudSelectItem T="string" Value="@port">@port</MudSelectItem>
+                                }
+                            </MudSelect>
+                            @if (!_isConnected)
+                            {
+                                <MudTooltip Text="Refresh COM Port">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Refresh"
+                                                   Color="MudBlazor.Color.Default"
+                                                   OnClick="RefreshPorts" />
+                                </MudTooltip>
+                            }
+                        </MudStack>
+                    </MudItem>
+                    <MudItem xs="6">
+                        <MudSelect T="int" Label="Baud Rate" @bind-Value="_baudRate" Disabled="_isConnected">
+                            @foreach (var baud in _baudRates)
+                            {
+                                <MudSelectItem T="int" Value="@baud">@baud</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                </MudGrid>
 
-                <MudSelect T="int" Label="Baud Rate" @bind-Value="_baudRate" Disabled="_isConnected">
-                    @foreach (var baud in _baudRates)
-                    {
-                        <MudSelectItem T="int" Value="@baud">@baud</MudSelectItem>
-                    }
-                </MudSelect>
-
-                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshPorts" Disabled="_isConnected" FullWidth="true">
-                    Refresh Ports
-                </MudButton>
-
-                @if (_isConnected)
-                {
-                    <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Error" StartIcon="@Icons.Material.Outlined.LinkOff" OnClick="Disconnect" FullWidth="true">
-                        Disconnect
+                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                    <MudButton Variant="@(_isConnected ? Variant.Outlined : Variant.Filled)"
+                               Color="@(_isConnected ? MudBlazor.Color.Error : MudBlazor.Color.Primary)"
+                               StartIcon="@(_isConnected ? Icons.Material.Outlined.LinkOff : Icons.Material.Filled.Link)"
+                               OnClick="@(_isConnected ? Disconnect : Connect)"
+                               Disabled="@(!_isConnected && string.IsNullOrEmpty(_selectedPort))"
+                               Style="width: 130px;">
+                        @(_isConnected ? "Disconnect" : "Connect")
                     </MudButton>
-                }
-                else
-                {
-                    <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" StartIcon="@Icons.Material.Filled.Link" OnClick="Connect" Disabled="string.IsNullOrEmpty(_selectedPort)" FullWidth="true">
-                        Connect
-                    </MudButton>
-                }
 
-                <MudChip T="string" Color="@StatusColor" Variant="Variant.Filled">@SerialService.Status</MudChip>
-
-                @if (!string.IsNullOrEmpty(SerialService.PortName))
-                {
-                    <MudText Typo="Typo.body2">@SerialService.PortName @@ @_baudRate baud</MudText>
-                }
+                    <MudChip T="string" Color="@StatusColor" Variant="Variant.Filled">@SerialService.Status</MudChip>
+                </MudStack>
 
                 @if (!string.IsNullOrEmpty(SerialService.LastError))
                 {
