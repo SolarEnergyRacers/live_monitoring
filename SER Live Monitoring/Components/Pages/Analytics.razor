@@ -1,0 +1,427 @@
+@page "/analytics"
+@inject AnalyticsDataService AnalyticsService
+
+<PageTitle>Analytics</PageTitle>
+
+<MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">Analytics</MudText>
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshData">Refresh Data</MudButton>
+</MudStack>
+
+<MudPaper Class="pa-4 mb-4 rounded-lg" Elevation="2">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-3" Spacing="2">
+        <MudText Typo="Typo.subtitle1">Timeseries (drag on the chart to select a timeframe)</MudText>
+        <MudSelect T="ChartSeries" MultiSelection="true" Label="Series" Dense="true" Style="min-width: 280px"
+                   @bind-SelectedValues="_selectedSeries" ToStringFunc="@SeriesLabel">
+            @foreach (var option in AnalyticsDataService.PlottableSeries)
+            {
+                <MudSelectItem T="ChartSeries" Value="@option.Series">@option.Label (@option.Unit)</MudSelectItem>
+            }
+        </MudSelect>
+    </MudStack>
+
+    @if (!_hasHistory)
+    {
+        <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center" Style="height: 380px">
+            <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">No data recorded yet</MudText>
+        </MudStack>
+    }
+    else if (!SelectedSeriesOptions.Any())
+    {
+        <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center" Style="height: 380px">
+            <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">Select at least one series to plot</MudText>
+        </MudStack>
+    }
+    else
+    {
+        <div style="height: 380px" @key="MainChartKey">
+            <ApexChart TItem="TimeSeriesPoint" Height="380" Options="_mainChartOptions" OnSelection="OnChartSelection">
+                @foreach (var option in SelectedSeriesOptions)
+                {
+                    <ApexPointSeries TItem="TimeSeriesPoint"
+                                     Items="@_chartSeriesData.GetValueOrDefault(option.Series, [])"
+                                     Name="@($"{option.Label} ({option.Unit})")"
+                                     Color="@option.Color"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="p => ToEpochMs(p.Timestamp)"
+                                     YValue="p => (decimal)p.Value"
+                                     ShowDataLabels="false" />
+                }
+            </ApexChart>
+        </div>
+    }
+</MudPaper>
+
+<MudPaper Class="pa-4 mb-4 rounded-lg" Elevation="2">
+    <MudText Typo="Typo.subtitle1" Class="mb-3">Select Timeframe</MudText>
+    <MudGrid>
+        <MudItem xs="12" md="4">
+            <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary" Class="mb-1">By event</MudText>
+            <MudStack Spacing="3">
+                <MudSelect T="long?" Label="From event" @bind-Value="_fromEventId" Clearable="true">
+                    @foreach (var evt in EventsAscending)
+                    {
+                        <MudSelectItem T="long?" Value="@((long?)evt.Id)">@evt.Name (@evt.Timestamp.ToString("g"))</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSelect T="long?" Label="To event" @bind-Value="_toEventId" Clearable="true">
+                    @foreach (var evt in EventsAscending)
+                    {
+                        <MudSelectItem T="long?" Value="@((long?)evt.Id)">@evt.Name (@evt.Timestamp.ToString("g"))</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" OnClick="ApplyEventRange"
+                           Disabled="@(_fromEventId is null || _toEventId is null || _fromEventId == _toEventId)">
+                    Use Events
+                </MudButton>
+            </MudStack>
+        </MudItem>
+
+        <MudItem xs="12" md="8">
+            <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary" Class="mb-1">Manual entry</MudText>
+            <MudGrid Spacing="2">
+                <MudItem xs="6" sm="3">
+                    <MudDatePicker Label="From date" @bind-Date="_fromDate" />
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <MudTimePicker Label="From time" @bind-Time="_fromTime" />
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <MudDatePicker Label="To date" @bind-Date="_toDate" />
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <MudTimePicker Label="To time" @bind-Time="_toTime" />
+                </MudItem>
+            </MudGrid>
+            <MudStack Row="true" Spacing="2" Class="mt-3">
+                <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" OnClick="ApplyManualRange">Apply</MudButton>
+                <MudButton Variant="Variant.Outlined" OnClick="ClearRange">Clear Selection</MudButton>
+            </MudStack>
+        </MudItem>
+    </MudGrid>
+
+    @if (_rangeStart is not null && _rangeEnd is not null)
+    {
+        <MudText Typo="Typo.body2" Class="mt-3">
+            Selected: <b>@_rangeStart.Value.ToString("g")</b> to <b>@_rangeEnd.Value.ToString("g")</b>
+            (@FormatDuration(_rangeEnd.Value - _rangeStart.Value))
+        </MudText>
+    }
+</MudPaper>
+
+@if (_summary is null)
+{
+    <MudAlert Severity="Severity.Info" Dense="true">Select a timeframe above to see analysis.</MudAlert>
+}
+else
+{
+    <MudGrid Class="mb-4">
+        <MudItem xs="6" sm="4" md="3">
+            <StatTile Title="Distance" Value="@Fmt(_summary.DistanceKm, " km")" Icon="@Icons.Material.Filled.Route" />
+        </MudItem>
+        <MudItem xs="6" sm="4" md="3">
+            <StatTile Title="Motor Consumed" Value="@Fmt(_summary.MotorConsumedWh, " Wh")" Icon="@Icons.Material.Filled.ElectricBolt" />
+        </MudItem>
+        <MudItem xs="6" sm="4" md="3">
+            <StatTile Title="Motor Regenerated" Value="@Fmt(_summary.MotorRegeneratedWh, " Wh")" Icon="@Icons.Material.Filled.BatteryChargingFull" />
+        </MudItem>
+        <MudItem xs="6" sm="4" md="3">
+            <StatTile Title="Solar Generated" Value="@Fmt(_summary.SolarGeneratedWh, " Wh")" Icon="@Icons.Material.Filled.WbSunny" />
+        </MudItem>
+        <MudItem xs="6" sm="4" md="3">
+            <StatTile Title="Generated − Used" Value="@Fmt(_summary.DeltaWh, " Wh")" Icon="@Icons.Material.Filled.CompareArrows"
+                       AccentColor="@(_summary.DeltaWh >= 0 ? MudBlazor.Color.Success : MudBlazor.Color.Error)" />
+        </MudItem>
+        <MudItem xs="6" sm="4" md="3">
+            <StatTile Title="Avg. Energy / km" Value="@Fmt(_summary.AvgEnergyPerKm, " Wh/km")" Icon="@Icons.Material.Filled.Insights" />
+        </MudItem>
+        <MudItem xs="6" sm="4" md="3">
+            <StatTile Title="Avg. Motor Power" Value="@Fmt(_summary.AvgMotorPowerW, " W")" Icon="@Icons.Material.Filled.Power" />
+        </MudItem>
+    </MudGrid>
+
+    <MudGrid>
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-4 rounded-lg" Elevation="2">
+                <MudText Typo="Typo.subtitle1" Class="mb-3">Speed vs Motor Power</MudText>
+                @if (_scatterData.Count == 0)
+                {
+                    <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center" Style="height: 320px">
+                        <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">No data in this timeframe</MudText>
+                    </MudStack>
+                }
+                else
+                {
+                    <div style="height: 320px" @key="RangeKey">
+                        <ApexChart TItem="ScatterPoint" Height="320" Options="_scatterOptions">
+                            <ApexPointSeries TItem="ScatterPoint" Items="_scatterData" Name="Samples" SeriesType="SeriesType.Scatter"
+                                             XValue="p => p.Speed" YValue="p => (decimal)p.MotorPower" />
+                        </ApexChart>
+                    </div>
+                }
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-4 rounded-lg" Elevation="2">
+                <MudText Typo="Typo.subtitle1" Class="mb-3">Energy Sources (Wh)</MudText>
+                @if (_energySources.Count == 0)
+                {
+                    <MudStack Justify="Justify.Center" AlignItems="AlignItems.Center" Style="height: 320px">
+                        <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">No data in this timeframe</MudText>
+                    </MudStack>
+                }
+                else
+                {
+                    <div style="height: 320px" @key="RangeKey">
+                        <ApexChart TItem="EnergySlice" Height="320" Options="_pieOptions">
+                            <ApexPointSeries TItem="EnergySlice" Items="_energySources" SeriesType="SeriesType.Pie"
+                                             XValue="p => p.Source" YValue="p => (decimal)p.EnergyWh" ShowDataLabels="true" />
+                        </ApexChart>
+                    </div>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private Dictionary<ChartSeries, List<TimeSeriesPoint>> _chartSeriesData = new();
+    private bool _hasHistory;
+    private IReadOnlyCollection<ChartSeries> _selectedSeries = new[] { ChartSeries.Speed };
+    private int _dataVersion;
+
+    private List<EventTimestamp> _events = [];
+    private long? _fromEventId;
+    private long? _toEventId;
+
+    private DateTime? _fromDate;
+    private TimeSpan? _fromTime;
+    private DateTime? _toDate;
+    private TimeSpan? _toTime;
+
+    private DateTime? _rangeStart;
+    private DateTime? _rangeEnd;
+
+    private AnalyticsSummary? _summary;
+    private List<ScatterPoint> _scatterData = [];
+    private List<EnergySlice> _energySources = [];
+
+    private ApexChartOptions<TimeSeriesPoint> _mainChartOptions = new();
+    private ApexChartOptions<ScatterPoint> _scatterOptions = new();
+    private ApexChartOptions<EnergySlice> _pieOptions = new();
+
+    private IEnumerable<ChartSeriesOption> SelectedSeriesOptions =>
+        AnalyticsDataService.PlottableSeries.Where(o => _selectedSeries.Contains(o.Series));
+
+    private List<EventTimestamp> EventsAscending => _events.OrderBy(e => e.Timestamp).ToList();
+
+    private string MainChartKey => $"{string.Join(",", _selectedSeries)}|{_dataVersion}|{_rangeStart?.Ticks}|{_rangeEnd?.Ticks}";
+    private string RangeKey => $"{_dataVersion}|{_rangeStart?.Ticks}|{_rangeEnd?.Ticks}";
+
+    private static string SeriesLabel(ChartSeries series) =>
+        AnalyticsDataService.PlottableSeries.FirstOrDefault(o => o.Series == series)?.Label ?? series.ToString();
+
+    protected override void OnInitialized()
+    {
+        BuildScatterOptions();
+        BuildPieOptions();
+        RefreshData();
+    }
+
+    private void RefreshData()
+    {
+        _events = AnalyticsService.GetEvents();
+        LoadChartSeriesData();
+        RecomputeAnalysis();
+        _dataVersion++;
+    }
+
+    private void LoadChartSeriesData()
+    {
+        var (start, end) = AnalyticsService.GetOverallTimeRange();
+        _hasHistory = start is not null && end is not null;
+
+        _chartSeriesData = _hasHistory
+            ? AnalyticsDataService.PlottableSeries.ToDictionary(
+                option => option.Series,
+                option => AnalyticsService.GetChartSeries(option.Series, start!.Value, end!.Value))
+            : new();
+
+        BuildMainChartOptions();
+    }
+
+    private void RecomputeAnalysis()
+    {
+        if (_rangeStart is null || _rangeEnd is null || _rangeEnd <= _rangeStart)
+        {
+            _summary = null;
+            _scatterData = [];
+            _energySources = [];
+            return;
+        }
+
+        _summary = AnalyticsService.Summarize(_rangeStart.Value, _rangeEnd.Value);
+        _scatterData = AnalyticsService.GetSpeedVsMotorPower(_rangeStart.Value, _rangeEnd.Value);
+        _energySources = AnalyticsService.GetEnergySources(_rangeStart.Value, _rangeEnd.Value);
+    }
+
+    private void OnChartSelection(SelectionData<TimeSeriesPoint> data)
+    {
+        if (data.XAxis.Min is null || data.XAxis.Max is null)
+            return;
+
+        var start = DateTimeOffset.FromUnixTimeMilliseconds((long)data.XAxis.Min.Value).LocalDateTime;
+        var end = DateTimeOffset.FromUnixTimeMilliseconds((long)data.XAxis.Max.Value).LocalDateTime;
+        SetRange(start, end);
+    }
+
+    private void ApplyEventRange()
+    {
+        if (_fromEventId is null || _toEventId is null)
+            return;
+
+        var from = _events.FirstOrDefault(e => e.Id == _fromEventId)?.Timestamp;
+        var to = _events.FirstOrDefault(e => e.Id == _toEventId)?.Timestamp;
+        if (from is null || to is null)
+            return;
+
+        SetRange(from < to ? from.Value : to.Value, from < to ? to.Value : from.Value);
+    }
+
+    private void ApplyManualRange()
+    {
+        if (_fromDate is null || _toDate is null)
+            return;
+
+        var start = _fromDate.Value.Date + (_fromTime ?? TimeSpan.Zero);
+        var end = _toDate.Value.Date + (_toTime ?? TimeSpan.Zero);
+        if (end <= start)
+            return;
+
+        SetRange(start, end);
+    }
+
+    private void ClearRange()
+    {
+        _rangeStart = null;
+        _rangeEnd = null;
+        RecomputeAnalysis();
+        BuildMainChartOptions();
+    }
+
+    private void SetRange(DateTime start, DateTime end)
+    {
+        _rangeStart = start;
+        _rangeEnd = end;
+        _fromDate = start.Date;
+        _fromTime = start.TimeOfDay;
+        _toDate = end.Date;
+        _toTime = end.TimeOfDay;
+
+        RecomputeAnalysis();
+        BuildMainChartOptions();
+    }
+
+    private static long ToEpochMs(DateTime dt) => new DateTimeOffset(dt).ToUnixTimeMilliseconds();
+
+    private void BuildMainChartOptions()
+    {
+        _mainChartOptions = new ApexChartOptions<TimeSeriesPoint>
+        {
+            Chart = new Chart
+            {
+                Toolbar = new Toolbar { Show = true, Tools = new Tools { Selection = true, Zoom = false, Zoomin = false, Zoomout = false, Pan = false } },
+                Selection = new Selection { Enabled = true, Type = AxisType.X },
+                Zoom = new Zoom { Enabled = false },
+                Animations = new Animations { Enabled = false }
+            },
+            Stroke = new Stroke { Width = 2, Curve = Curve.Smooth },
+            Xaxis = new XAxis
+            {
+                Type = XAxisType.Datetime,
+                AxisTicks = new AxisTicks { Show = true, Color = "#FFFFFF" },
+                Labels = new XAxisLabels { Style = new AxisLabelStyle { Colors = "#FFFFFF" }, DatetimeUTC = false }
+            },
+            Yaxis = new List<YAxis>
+            {
+                new()
+                {
+                    DecimalsInFloat = 1,
+                    Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = "#FFFFFF" } },
+                    AxisBorder = new AxisBorder { Show = true, Color = "#FFFFFF" },
+                    AxisTicks = new AxisTicks { Show = true, Color = "#FFFFFF" }
+                }
+            },
+            Legend = new Legend { Labels = new LegendLabels { Colors = "#FFFFFF" } },
+            Annotations = new Annotations { Xaxis = BuildAnnotations() }
+        };
+    }
+
+    private List<AnnotationsXAxis> BuildAnnotations()
+    {
+        var annotations = _events.Select(e => new AnnotationsXAxis
+        {
+            X = ToEpochMs(e.Timestamp),
+            BorderColor = "#FFC107",
+            Label = new Label { Text = e.Name, Style = new Style { Color = "#000000", Background = "#FFC107" } }
+        }).ToList();
+
+        if (_rangeStart is not null && _rangeEnd is not null)
+        {
+            annotations.Add(new AnnotationsXAxis
+            {
+                X = ToEpochMs(_rangeStart.Value),
+                X2 = ToEpochMs(_rangeEnd.Value),
+                FillColor = "#42A5F5",
+                Opacity = 0.15
+            });
+        }
+
+        return annotations;
+    }
+
+    private void BuildScatterOptions()
+    {
+        _scatterOptions = new ApexChartOptions<ScatterPoint>
+        {
+            Chart = new Chart { Type = ApexCharts.ChartType.Scatter, Toolbar = new Toolbar { Show = false }, Animations = new Animations { Enabled = false } },
+            Colors = new List<string> { "#FF7043" },
+            Xaxis = new XAxis
+            {
+                Title = new AxisTitle { Text = "Speed (km/h)", Style = new AxisTitleStyle { Color = "#FFFFFF" } },
+                Labels = new XAxisLabels { Style = new AxisLabelStyle { Colors = "#FFFFFF" } }
+            },
+            Yaxis = new List<YAxis>
+            {
+                new()
+                {
+                    Title = new AxisTitle { Text = "Motor Power (W)", Style = new AxisTitleStyle { Color = "#FFFFFF" } },
+                    Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = "#FFFFFF" } }
+                }
+            }
+        };
+    }
+
+    private void BuildPieOptions()
+    {
+        _pieOptions = new ApexChartOptions<EnergySlice>
+        {
+            Chart = new Chart { Type = ApexCharts.ChartType.Pie, Animations = new Animations { Enabled = false } },
+            Colors = new List<string> { "#FFC107", "#26A69A" },
+            Legend = new Legend { Position = LegendPosition.Bottom, Labels = new LegendLabels { Colors = "#FFFFFF" } },
+            DataLabels = new DataLabels
+            {
+                Enabled = true,
+                Style = new DataLabelsStyle { Colors = new List<string> { "#000000" } },
+                // Pie labels default to showing each slice's percentage; show the Wh value instead.
+                Formatter = "function (val, opts) { return opts.w.config.series[opts.seriesIndex].toFixed(1) + ' Wh'; }"
+            }
+        };
+    }
+
+    private static string Fmt(double value, string suffix) => value.ToString("0.##") + suffix;
+
+    private static string FormatDuration(TimeSpan span) => span.TotalHours >= 1
+        ? $"{(int)span.TotalHours}h {span.Minutes}m"
+        : $"{(int)span.TotalMinutes}m {span.Seconds}s";
+}

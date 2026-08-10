@@ -23,6 +23,7 @@ builder.Services.AddSingleton(sp =>
     var dataDir = PersistenceService.ResolveDataDirectory(config);
     return new EventTimestampService(Path.Combine(dataDir, "events.db"));
 });
+builder.Services.AddSingleton<AnalyticsDataService>();
 //builder.Services.AddSingleton<IReadingCache>(sp => sp.GetRequiredService<DataManager>());
 
 var app = builder.Build();

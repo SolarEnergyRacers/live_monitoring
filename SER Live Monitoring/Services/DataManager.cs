@@ -296,6 +296,24 @@ public class DataManager : IDisposable
         });
     }
 
+    private static readonly string[] MpptSeriesNames = ["mppt1_power", "mppt2_power", "mppt3_power", "mppt4_power"];
+
+    // Every ChartSeries except SolarTotal maps onto exactly one stored TimeSeries; SolarTotal is
+    // derived (see SumByTimestamp) since it's the sum of the four MPPT series, not a stored one.
+    private TimeSeries? ResolveSeries(ChartSeries series) => series switch
+    {
+        ChartSeries.Speed => _series["speed"],
+        ChartSeries.BatteryVoltage => _series["battery_voltage"],
+        ChartSeries.BatteryCurrent => _series["battery_current"],
+        ChartSeries.BatteryPower => _series["battery_power"],
+        ChartSeries.MotorPower => _series["motor_power"],
+        ChartSeries.Mppt1 => _series["mppt1_power"],
+        ChartSeries.Mppt2 => _series["mppt2_power"],
+        ChartSeries.Mppt3 => _series["mppt3_power"],
+        ChartSeries.Mppt4 => _series["mppt4_power"],
+        _ => null
+    };
+
     public List<double> GetSeries(ChartSeries series, TimeSpan window)
     {
         lock (_lock)
@@ -303,24 +321,51 @@ public class DataManager : IDisposable
             var end = DateTime.Now;
             var start = end - window;
 
-            return series switch
+            if (series == ChartSeries.SolarTotal)
+                return SumByTimestamp(MpptSeriesNames.Select(n => _series[n].GetTimeframeWithTimestamps(start, end)))
+                    .Select(p => p.Value)
+                    .ToList();
+
+            return ResolveSeries(series)?.getTimeframe(start, end) ?? new();
+        }
+    }
+
+    // Absolute-range counterpart to GetSeries, with real timestamps attached - used by the
+    // Analytics page, which needs to query arbitrary historical windows rather than a rolling
+    // "now minus window" range.
+    public List<(long UnixTimestamp, double Value)> GetSeriesRange(ChartSeries series, DateTime start, DateTime end)
+    {
+        lock (_lock)
+        {
+            if (series == ChartSeries.SolarTotal)
+                return SumByTimestamp(MpptSeriesNames.Select(n => _series[n].GetTimeframeWithTimestamps(start, end)));
+
+            return ResolveSeries(series)?.GetTimeframeWithTimestamps(start, end) ?? new();
+        }
+    }
+
+    // The earliest and latest timestamps recorded across every series, i.e. the full extent of
+    // history currently held (in memory plus anything PersistenceService restored on startup).
+    // Null when nothing has been recorded yet.
+    public (DateTime? Start, DateTime? End) GetOverallTimeRange()
+    {
+        lock (_lock)
+        {
+            long? minStart = null;
+            long? maxEnd = null;
+
+            foreach (var series in _series.Values)
             {
-                ChartSeries.Speed => _series["speed"].getTimeframe(start, end),
-                ChartSeries.BatteryVoltage => _series["battery_voltage"].getTimeframe(start, end),
-                ChartSeries.BatteryCurrent => _series["battery_current"].getTimeframe(start, end),
-                ChartSeries.BatteryPower => _series["battery_power"].getTimeframe(start, end),
-                ChartSeries.MotorPower => _series["motor_power"].getTimeframe(start, end),
-                ChartSeries.Mppt1 => _series["mppt1_power"].getTimeframe(start, end),
-                ChartSeries.Mppt2 => _series["mppt2_power"].getTimeframe(start, end),
-                ChartSeries.Mppt3 => _series["mppt3_power"].getTimeframe(start, end),
-                ChartSeries.Mppt4 => _series["mppt4_power"].getTimeframe(start, end),
-                ChartSeries.SolarTotal => SumRightAligned(
-                    _series["mppt1_power"].getTimeframe(start, end),
-                    _series["mppt2_power"].getTimeframe(start, end),
-                    _series["mppt3_power"].getTimeframe(start, end),
-                    _series["mppt4_power"].getTimeframe(start, end)),
-                _ => new()
-            };
+                if (series.Datapoints.Count == 0)
+                    continue;
+
+                minStart = minStart is null ? series.StartTimestamp : Math.Min(minStart.Value, series.StartTimestamp);
+                maxEnd = maxEnd is null ? series.LastTimestamp : Math.Max(maxEnd.Value, series.LastTimestamp);
+            }
+
+            return minStart is null
+                ? (null, null)
+                : (DateTimeOffset.FromUnixTimeSeconds(minStart.Value).LocalDateTime, DateTimeOffset.FromUnixTimeSeconds(maxEnd!.Value).LocalDateTime);
         }
     }
 
@@ -346,26 +391,19 @@ public class DataManager : IDisposable
         return points.Count == 0 ? null : points.Average();
     }
 
-    // Sums timeseries slices that may differ in length (e.g. an MPPT with no data returns an empty
-    // slice), aligning them on their most recent sample since that's always where they agree.
-    private static List<double> SumRightAligned(params List<double>[] series)
+    // Sums timestamped series by matching real timestamps rather than by trailing-edge index
+    // alignment, so series that started recording at different times (e.g. one MPPT reporting
+    // later than the others) are still summed correctly rather than merely lined up by their
+    // most recent sample.
+    private static List<(long UnixTimestamp, double Value)> SumByTimestamp(IEnumerable<List<(long UnixTimestamp, double Value)>> serieses)
     {
-        int maxLen = series.Max(s => s.Count);
-        var result = new List<double>(maxLen);
+        var totals = new SortedDictionary<long, double>();
 
-        for (int i = 0; i < maxLen; i++)
-        {
-            double sum = 0;
-            foreach (var s in series)
-            {
-                int idx = s.Count - maxLen + i;
-                if (idx >= 0)
-                    sum += s[idx];
-            }
-            result.Add(sum);
-        }
+        foreach (var series in serieses)
+            foreach (var (timestamp, value) in series)
+                totals[timestamp] = totals.GetValueOrDefault(timestamp) + value;
 
-        return result;
+        return totals.Select(kv => (kv.Key, kv.Value)).ToList();
     }
 
     // Series names PersistenceService can look up via RestoreSeries/DrainNewPoints.
