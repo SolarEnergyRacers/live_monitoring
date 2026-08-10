@@ -1,0 +1,174 @@
+@page "/ac-dc"
+@implements IDisposable
+@inject DataManager DataManager
+@inject SerialPortMonitorService SerialService
+
+<PageTitle>AC / DC Dashboard</PageTitle>
+
+<MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">AC / DC Dashboard</MudText>
+    <MudChip T="string" Color="@StatusColor" Variant="Variant.Filled">@SerialService.Status</MudChip>
+</MudStack>
+
+<MudGrid>
+    <MudItem xs="12" md="8">
+        <MudPaper Class="pa-3 rounded-lg" Elevation="2">
+            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-2">
+                <MudText Typo="Typo.subtitle1">DC — Drive Controller</MudText>
+                <MudStack Row="true" Spacing="1">
+                    <MudChip T="string" Size="MudBlazor.Size.Small" Variant="@FlagVariant(MotorOn)" Color="@(MotorOn ? MudBlazor.Color.Success : MudBlazor.Color.Default)">@(MotorOn ? "Motor On" : "Motor Off")</MudChip>
+                    <MudChip T="string" Size="MudBlazor.Size.Small" Variant="Variant.Filled" Color="@DirectionColor">@DirectionLabel</MudChip>
+                </MudStack>
+            </MudStack>
+
+            <MudGrid Class="mb-2" Spacing="2">
+                <MudItem xs="6" sm="3">
+                    <StatTile Title="Speed" Value="@Fmt(Get("speed")?.Value, " km/h")" Icon="@Icons.Material.Filled.Speed" />
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <StatTile Title="Target Speed" Value="@Fmt(Get("targetspeed")?.Value, " km/h")" Icon="@Icons.Material.Filled.Speed" />
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <StatTile Title="Motor Current" Value="@Fmt(Get("dc_motor_current")?.Value, " A")" Icon="@Icons.Material.Filled.ElectricBolt" />
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <StatTile Title="Battery Voltage" Value="@Fmt(Get("dc_battery_voltage")?.Value, " V")" Icon="@Icons.Material.Filled.Bolt" />
+                </MudItem>
+            </MudGrid>
+
+            <MudTable Items="@DcDetailRows" Dense="true" Hover="true" Elevation="0" Class="mb-2">
+                <RowTemplate>
+                    <MudTd DataLabel="Signal">@context.Label</MudTd>
+                    <MudTd DataLabel="Value" Style="text-align:right">@context.Value</MudTd>
+                </RowTemplate>
+            </MudTable>
+
+            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                @foreach (var (name, label, isError) in DcFlags)
+                {
+                    var isOn = Flag(name);
+                    <MudChip T="string" Size="MudBlazor.Size.Small" Variant="@FlagVariant(isOn)" Color="@FlagColor(isOn, isError)">@label</MudChip>
+                }
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="4">
+        <MudPaper Class="pa-3 rounded-lg" Elevation="2">
+            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-2">
+                <MudText Typo="Typo.subtitle1">AC — Aux Controller</MudText>
+                <MudChip T="string" Size="MudBlazor.Size.Small" Variant="Variant.Filled" Color="@ModeColor">@ModeLabel</MudChip>
+            </MudStack>
+
+            <MudTable Items="@AcDetailRows" Dense="true" Hover="true" Elevation="0">
+                <RowTemplate>
+                    <MudTd DataLabel="Signal">@context.Label</MudTd>
+                    <MudTd DataLabel="Value" Style="text-align:right">@context.Value</MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private System.Threading.Timer? _uiRefreshTimer;
+
+    private MudBlazor.Color StatusColor => SerialService.Status switch
+    {
+        SerialConnectionStatus.Connected => MudBlazor.Color.Success,
+        SerialConnectionStatus.Error => MudBlazor.Color.Error,
+        _ => MudBlazor.Color.Default
+    };
+
+    // None of these are faults, just live state - always rendered in the normal on/off style.
+    private static readonly (string Name, string Label, bool IsError)[] DcFlags =
+    [
+        ("dc_motor_on", "Motor Stage On", false),
+        ("dc_battery_on", "Battery Connected", false),
+        ("dc_pv_on", "PV Connected", false),
+        ("brake_pedal", "Brake Pedal", false),
+        ("const_mode_on", "Constant Mode", false),
+        ("driver_confirm", "Driver Confirm", false),
+    ];
+
+    private record DetailRow(string Label, string Value);
+
+    private List<DetailRow> DcDetailRows =>
+    [
+        new("Target Power", Fmt(Get("targetpower")?.Value, " kW")),
+        new("PV Voltage", Fmt(Get("dc_pv_voltage")?.Value, " V")),
+        new("Potentiometer", Fmt(Get("dc_potentiometer")?.Value, "")),
+        new("Acceleration", Fmt(Get("dc_acceleration")?.Value, "")),
+        new("Deceleration", Fmt(Get("dc_deceleration")?.Value, "")),
+        new("Accel Display", Fmt(Get("accel_display")?.Value, "")),
+        new("Pack Sequence", Fmt(Get("dc_pack_seq")?.Value, "")),
+        new("Life Sign", Fmt(Get("dc_lifesign")?.Value, "")),
+    ];
+
+    private List<DetailRow> AcDetailRows =>
+    [
+        new("Kp", Fmt(Get("Kp")?.Value, "")),
+        new("Ki", Fmt(Get("Ki")?.Value, "")),
+        new("Kd", Fmt(Get("Kd")?.Value, "")),
+        new("Glide Mode", Fmt(Get("ac_glidemode")?.Value, "")),
+        new("Life Sign", Fmt(Get("ac_life_sign")?.Value, "")),
+    ];
+
+    private Reading? Get(string name) => DataManager.GetLatest(name);
+    private bool Flag(string name) => Get(name)?.Value == 1;
+    private bool MotorOn => Flag("motor_on");
+
+    // drive_direction: 1 = forward, 0 = reverse (see CANFrameDecoder.DecodeDc)
+    private string DirectionLabel => (int?)Get("drive_direction")?.Value switch
+    {
+        1 => "Forward",
+        0 => "Reverse",
+        _ => "--"
+    };
+
+    private MudBlazor.Color DirectionColor => (int?)Get("drive_direction")?.Value switch
+    {
+        1 => MudBlazor.Color.Info,
+        0 => MudBlazor.Color.Warning,
+        _ => MudBlazor.Color.Default
+    };
+
+    // ac_mode: 1 = speed, 0 = power (see CANFrameDecoder.DecodeAc)
+    private string ModeLabel => (int?)Get("ac_mode")?.Value switch
+    {
+        1 => "Speed Mode",
+        0 => "Power Mode",
+        _ => "--"
+    };
+
+    private MudBlazor.Color ModeColor => (int?)Get("ac_mode")?.Value switch
+    {
+        1 => MudBlazor.Color.Info,
+        0 => MudBlazor.Color.Warning,
+        _ => MudBlazor.Color.Default
+    };
+
+    // Off is greyed out regardless of category; On is green for normal flags, red for error flags.
+    private static MudBlazor.Color FlagColor(bool isOn, bool isError)
+        => !isOn ? MudBlazor.Color.Default : isError ? MudBlazor.Color.Error : MudBlazor.Color.Success;
+
+    private static Variant FlagVariant(bool isOn) => isOn ? Variant.Filled : Variant.Outlined;
+
+    private static string Fmt(double? value, string suffix)
+        => value is null ? "--" : value.Value.ToString("0.###") + suffix;
+
+    protected override void OnInitialized()
+    {
+        // Data can arrive up to ~100x/sec; repaint on a fixed 2Hz tick instead of per reading.
+        _uiRefreshTimer = new System.Threading.Timer(
+            _ => InvokeAsync(StateHasChanged),
+            null,
+            TimeSpan.FromMilliseconds(500),
+            TimeSpan.FromMilliseconds(500));
+    }
+
+    public void Dispose()
+    {
+        _uiRefreshTimer?.Dispose();
+    }
+}
