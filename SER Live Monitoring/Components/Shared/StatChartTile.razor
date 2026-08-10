@@ -86,7 +86,14 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender && _chart is not null)
-            await _chart.UpdateSeriesAsync();
+        try
+        {
+            if (!firstRender && _chart is not null)
+                await _chart.UpdateSeriesAsync();
+        }
+        catch
+        {
+            // whatever
+        }
     }
 }

@@ -84,6 +84,7 @@ public enum ChartSeries
 {
     Speed,
     BatteryVoltage,
+    BatteryCurrent,
     BatteryPower,
     MotorPower,
     SolarTotal,
@@ -122,6 +123,7 @@ public class DataManager : IDisposable
         ["motor_voltage"] = new(0.0),
         ["motor_power"] = new(0.0),
         ["battery_voltage"] = new(0.0),
+        ["battery_current"] = new(0.0),
         ["battery_power"] = new(0.0),
     };
 
@@ -267,6 +269,9 @@ public class DataManager : IDisposable
                 case "batt_volt":
                     _series["battery_voltage"].AddAndInterpolate(reading);
                     break;
+                case "batt_curr":
+                    _series["battery_current"].AddAndInterpolate(reading);
+                    break;
                 default:
                     break;
             }
@@ -302,6 +307,7 @@ public class DataManager : IDisposable
             {
                 ChartSeries.Speed => _series["speed"].getTimeframe(start, end),
                 ChartSeries.BatteryVoltage => _series["battery_voltage"].getTimeframe(start, end),
+                ChartSeries.BatteryCurrent => _series["battery_current"].getTimeframe(start, end),
                 ChartSeries.BatteryPower => _series["battery_power"].getTimeframe(start, end),
                 ChartSeries.MotorPower => _series["motor_power"].getTimeframe(start, end),
                 ChartSeries.Mppt1 => _series["mppt1_power"].getTimeframe(start, end),
