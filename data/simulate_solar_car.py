@@ -11,6 +11,9 @@ INTERVAL = 1.0
 
 MPPT_ADDR = {1: 0x600, 2: 0x610, 3: 0x620, 4: 0x630}
 MPPT_MAX_CURRENT = {1: 3.0, 2: 2.8, 3: 3.1, 4: 2.9}  # amps, panel-to-panel variance
+MPPT_EFFICIENCY = 0.95  # output power / input power, typical for a boost-converter MPPT
+MPPT_MAX_OUT_VOLTAGE = 145.0  # configured limit, sent as-is on the "Limits" frame
+MPPT_MAX_IN_CURRENT = 10.0
 
 AC_ADDR = 0x650
 MC_BASE_ADDR = 0x500
@@ -173,6 +176,10 @@ class SolarCarState:
         self.mppt_current = {mppt_id: MPPT_MAX_CURRENT[mppt_id] * 0.6 for mppt_id in MPPT_ADDR}
         self.mppt_mosfet_temp = {mppt_id: 32.0 for mppt_id in MPPT_ADDR}
         self.mppt_controller_temp = {mppt_id: 30.0 for mppt_id in MPPT_ADDR}
+        self.mppt_in_voltage = {mppt_id: 30.0 for mppt_id in MPPT_ADDR}  # panel string voltage, pre-conversion
+        self.mppt_aux_12v = {mppt_id: 12.0 for mppt_id in MPPT_ADDR}
+        self.mppt_aux_3v = {mppt_id: 3.3 for mppt_id in MPPT_ADDR}
+        self.mppt_conn_temp = {mppt_id: 25.0 for mppt_id in MPPT_ADDR}
 
         self.speed = 40.0
         self.target_speed = 40.0
@@ -249,6 +256,12 @@ class SolarCarState:
             self.mppt_controller_temp[mppt_id] = approach(self.mppt_controller_temp[mppt_id],
                                                             temp_target - 4.0, temp_rate, 0.3, 15, 100)
 
+            self.mppt_in_voltage[mppt_id] = walk(self.mppt_in_voltage[mppt_id], 0.3, 25.0, 38.0)
+            self.mppt_aux_12v[mppt_id] = walk(self.mppt_aux_12v[mppt_id], 0.02, 11.5, 12.5)
+            self.mppt_aux_3v[mppt_id] = walk(self.mppt_aux_3v[mppt_id], 0.005, 3.2, 3.4)
+            self.mppt_conn_temp[mppt_id] = approach(self.mppt_conn_temp[mppt_id],
+                                                      22.0 + self.mppt_current[mppt_id] * 3.0, 0.1, 0.2, 15, 70)
+
         self.target_speed = walk(self.target_speed, 4.0, 0, 100)
         self.speed = approach(self.speed, self.target_speed, 0.25, 1.0, 0, 100)
 
@@ -323,25 +336,47 @@ class SolarCarState:
                                       int(round(battery_voltage)), dc_status_bits, 0)
             packets.append(build_packet(DC_POWER_ADDR, power_data))
 
-        # MPPT output/temps/status (voltage shared with battery bus)
+        # MPPT: input, output, temps, aux rails, limits, status, power connector.
+        # (voltage shared with battery bus; mppt frame fix 3871eba means all floats here
+        # are little-endian)
         for mppt_id, addr_base in MPPT_ADDR.items():
             if not active(f"Mppt{mppt_id}"):
                 continue
 
-            # mppt frame fix (3871eba): DecodeMppt now reads all its floats little-endian.
+            output_power = battery_voltage * self.mppt_current[mppt_id]
+            input_current = (output_power / MPPT_EFFICIENCY) / self.mppt_in_voltage[mppt_id]
+            in_data = struct.pack("<ff", self.mppt_in_voltage[mppt_id], input_current)
+            packets.append(build_packet(addr_base | 0x0, in_data))
+
             out_data = struct.pack("<ff", battery_voltage, self.mppt_current[mppt_id])
             packets.append(build_packet(addr_base | 0x1, out_data))
 
             temp_data = struct.pack("<ff", self.mppt_mosfet_temp[mppt_id], self.mppt_controller_temp[mppt_id])
             packets.append(build_packet(addr_base | 0x2, temp_data))
 
+            # index0 = aux_3V, index1 = aux_12V (matches DecodeMppt's read order)
+            aux_data = struct.pack("<ff", self.mppt_aux_3v[mppt_id], self.mppt_aux_12v[mppt_id])
+            packets.append(build_packet(addr_base | 0x3, aux_data))
+
+            # index0 = max_in_current, index1 = max_out_voltage; configured limits, not live telemetry
+            limits_data = struct.pack("<ff", MPPT_MAX_IN_CURRENT, MPPT_MAX_OUT_VOLTAGE)
+            packets.append(build_packet(addr_base | 0x4, limits_data))
+
             status_byte3 = 0
             for fault_mppt_id, name in self.fault_mppt_status_bits:
                 if fault_mppt_id == mppt_id:
                     bit, _ = MPPT_STATUS_FLAG_BITS[name]
                     status_byte3 |= 1 << bit
-            status_data = bytes([0, 0, 0, status_byte3, 0, 1, 0, 0])  # byte5 bit0 = mppt_is_on
+            status_byte4 = 1 << 6  # mppt_local: normal operation, not under global override
+            if mppt_id in self.fault_mppt_overtemp:
+                status_byte4 |= 1 << 3  # mppt_lim_mosfet_temp: throttling alongside the overheat fault
+            status_data = bytes([0, 0, 0, status_byte3, status_byte4, 1, 0, 0])  # byte5 bit0 = mppt_is_on
             packets.append(build_packet(addr_base | 0x5, status_data))
+
+            # index0 = connector temp, index1 = connector output voltage (small drop off the bus)
+            conn_out_voltage = battery_voltage - random.uniform(0.05, 0.2)
+            conn_data = struct.pack("<ff", self.mppt_conn_temp[mppt_id], conn_out_voltage)
+            packets.append(build_packet(addr_base | 0x6, conn_data))
 
         # AC controller heartbeat
         if active("Ac"):
