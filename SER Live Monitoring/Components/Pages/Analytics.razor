@@ -330,9 +330,16 @@ else
         {
             Chart = new Chart
             {
-                Toolbar = new Toolbar { Show = true, Tools = new Tools { Selection = true, Zoom = false, Zoomin = false, Zoomout = false, Pan = false } },
+                // Drag always selects a timeframe (below); zooming is mouse-wheel only, so the two
+                // never compete for the same gesture.
+                Toolbar = new Toolbar
+                {
+                    Show = true,
+                    AutoSelected = AutoSelected.Selection,
+                    Tools = new Tools { Selection = true, Zoom = false, Zoomin = false, Zoomout = false, Pan = false, Measure = false }
+                },
                 Selection = new Selection { Enabled = true, Type = AxisType.X },
-                Zoom = new Zoom { Enabled = false },
+                Zoom = new Zoom { Enabled = true, AllowMouseWheelZoom = true },
                 Animations = new Animations { Enabled = false }
             },
             Stroke = new Stroke { Width = 2, Curve = Curve.Smooth },
