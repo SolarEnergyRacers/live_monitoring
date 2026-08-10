@@ -1,0 +1,158 @@
+@page "/mppt"
+@implements IDisposable
+@inject DataManager DataManager
+@inject SerialPortMonitorService SerialService
+
+<PageTitle>MPPT Dashboard</PageTitle>
+
+<MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">MPPT Dashboard</MudText>
+    <MudChip T="string" Color="@StatusColor" Variant="Variant.Filled">@SerialService.Status</MudChip>
+</MudStack>
+
+<MudGrid Class="mb-4">
+    <MudItem xs="6" sm="4" md="2">
+        <StatTile Title="Total Input Power" Value="@TotalInPowerText" Icon="@Icons.Material.Filled.WbSunny" />
+    </MudItem>
+    <MudItem xs="6" sm="4" md="2">
+        <StatTile Title="Total Output Power" Value="@TotalOutPowerText" Icon="@Icons.Material.Filled.Power" />
+    </MudItem>
+    <MudItem xs="6" sm="4" md="2">
+        <StatTile Title="MPPTs Active" Value="@ActiveCountText" Icon="@Icons.Material.Filled.SolarPower" />
+    </MudItem>
+</MudGrid>
+
+<MudGrid>
+    @foreach (var mpptId in MpptIds)
+    {
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-3 rounded-lg" Elevation="2">
+                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-2">
+                    <MudText Typo="Typo.subtitle1">MPPT @mpptId</MudText>
+                    <MudChip T="string" Size="MudBlazor.Size.Small" Variant="@FlagVariant(IsOn(mpptId))" Color="@(IsOn(mpptId) ? MudBlazor.Color.Success : MudBlazor.Color.Default)">@(IsOn(mpptId) ? "On" : "Off")</MudChip>
+                </MudStack>
+
+                <MudGrid Class="mb-2" Spacing="2">
+                    <MudItem xs="6">
+                        <StatTile Title="Output Power" Value="@Fmt(Get("calc_mppt_out_power", mpptId)?.Value, " W")" Icon="@Icons.Material.Filled.Power" />
+                    </MudItem>
+                    <MudItem xs="6">
+                        <StatTile Title="Input Power" Value="@Fmt(Get("calc_mppt_in_power", mpptId)?.Value, " W")" Icon="@Icons.Material.Filled.WbSunny" />
+                    </MudItem>
+                </MudGrid>
+
+                <MudTable Items="@DetailRows(mpptId)" Dense="true" Hover="true" Elevation="0" Class="mb-2">
+                    <RowTemplate>
+                        <MudTd DataLabel="Signal">@context.Label</MudTd>
+                        <MudTd DataLabel="Value" Style="text-align:right">@context.Value</MudTd>
+                    </RowTemplate>
+                </MudTable>
+
+                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                    @foreach (var (name, label, isError) in StatusFlags)
+                    {
+                        var isOn = Flag(name, mpptId);
+                        <MudChip T="string" Size="MudBlazor.Size.Small" Variant="@FlagVariant(isOn)" Color="@FlagColor(isOn, isError)">@label</MudChip>
+                    }
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+    }
+</MudGrid>
+
+@code {
+    private static readonly string[] MpptIds = ["1", "2", "3", "4"];
+
+    private System.Threading.Timer? _uiRefreshTimer;
+
+    private MudBlazor.Color StatusColor => SerialService.Status switch
+    {
+        SerialConnectionStatus.Connected => MudBlazor.Color.Success,
+        SerialConnectionStatus.Error => MudBlazor.Color.Error,
+        _ => MudBlazor.Color.Default
+    };
+
+    // Everything here is a fault bit except Battery Full, Local and Global, which are informational.
+    private static readonly (string Name, string Label, bool IsError)[] StatusFlags =
+    [
+        ("mppt_low_array_power", "Low Array Power", true),
+        ("mppt_mosfet_overheat", "MOSFET Overheat", true),
+        ("mppt_batt_low", "Battery Low", true),
+        ("mppt_batt_full", "Battery Full", false),
+        ("mppt_12V_undervoltage", "12V Undervoltage", true),
+        ("mppt_hw_over_curr", "HW Over-Current", true),
+        ("mppt_hw_over_volt", "HW Over-Voltage", true),
+        ("mppt_inp_curr_min", "Input Current Min Limit", false),
+        ("mppt_inp_curr_max", "Input Current Max Limit", false),
+        ("mppt_out_volt_max", "Output Voltage Max Limit", false),
+        ("mppt_lim_mosfet_temp", "MOSFET Temp Limit", true),
+        ("mppt_dutycycle_min", "Duty Cycle Min Limit", false),
+        ("mppt_dutycycle_max", "Duty Cycle Max Limit", false),
+        ("mppt_local", "Local Control", false),
+        ("mppt_global", "Global Control", false),
+    ];
+
+    private record DetailRow(string Label, string Value);
+
+    private List<DetailRow> DetailRows(string mpptId) =>
+    [
+        new("Input Voltage", Fmt(Get("mppt_in_voltage", mpptId)?.Value, " V")),
+        new("Input Current", Fmt(Get("mppt_in_current", mpptId)?.Value, " A")),
+        new("Output Voltage", Fmt(Get("mppt_out_voltage", mpptId)?.Value, " V")),
+        new("Output Current", Fmt(Get("mppt_out_current", mpptId)?.Value, " A")),
+        new("MOSFET Temp", Fmt(Get("mppt_mosfet_temp", mpptId)?.Value, " °C")),
+        new("Controller Temp", Fmt(Get("mppt_controller_temp", mpptId)?.Value, " °C")),
+        new("Max Output Voltage", Fmt(Get("mppt_max_out_voltage", mpptId)?.Value, " V")),
+        new("Max Input Current", Fmt(Get("mppt_max_in_current", mpptId)?.Value, " A")),
+        new("Aux 12V Rail", Fmt(Get("aux_12V_voltage", mpptId)?.Value, " V")),
+        new("Aux 3.3V Rail", Fmt(Get("aux_3V_voltage", mpptId)?.Value, " V")),
+        new("Connector Out Voltage", Fmt(Get("mppt_conn_out_voltage", mpptId)?.Value, " V")),
+        new("Connector Temp", Fmt(Get("mppt_conn_temp", mpptId)?.Value, " °C")),
+        new("CAN RX Errors", Get("mppt_can_rx_err", mpptId)?.Value.ToString("0") ?? "--"),
+        new("CAN TX Errors", Get("mppt_can_tx_err", mpptId)?.Value.ToString("0") ?? "--"),
+        new("CAN Overflow", Get("mppt_can_overflow", mpptId)?.Value.ToString("0") ?? "--"),
+    ];
+
+    private Reading? Get(string name, string mpptId) => DataManager.GetLatest(name, ("mppt_id", mpptId));
+    private bool Flag(string name, string mpptId) => Get(name, mpptId)?.Value == 1;
+    private bool IsOn(string mpptId) => Flag("mppt_is_on", mpptId);
+
+    // Off is greyed out regardless of category; On is green for normal flags, red for error flags.
+    private static MudBlazor.Color FlagColor(bool isOn, bool isError)
+        => !isOn ? MudBlazor.Color.Default : isError ? MudBlazor.Color.Error : MudBlazor.Color.Success;
+
+    private static Variant FlagVariant(bool isOn) => isOn ? Variant.Filled : Variant.Outlined;
+
+    private double? TotalInPower => SumIfAnyData("calc_mppt_in_power");
+    private double? TotalOutPower => SumIfAnyData("calc_mppt_out_power");
+    private int ActiveCount => MpptIds.Count(IsOn);
+
+    // Distinguishes "no MPPT has reported yet" (--) from "MPPTs reported but current power is zero" (0 W).
+    private double? SumIfAnyData(string readingName)
+    {
+        var values = MpptIds.Select(id => Get(readingName, id)?.Value).ToList();
+        return values.Any(v => v is not null) ? values.Sum(v => v ?? 0) : null;
+    }
+
+    private string TotalInPowerText => Fmt(TotalInPower, " W");
+    private string TotalOutPowerText => Fmt(TotalOutPower, " W");
+    private string ActiveCountText => $"{ActiveCount} / {MpptIds.Length}";
+
+    private static string Fmt(double? value, string suffix)
+        => value is null ? "--" : value.Value.ToString("0.###") + suffix;
+
+    protected override void OnInitialized()
+    {
+        // Data can arrive up to ~100x/sec; repaint on a fixed 2Hz tick instead of per reading.
+        _uiRefreshTimer = new System.Threading.Timer(
+            _ => InvokeAsync(StateHasChanged),
+            null,
+            TimeSpan.FromMilliseconds(500),
+            TimeSpan.FromMilliseconds(500));
+    }
+
+    public void Dispose()
+    {
+        _uiRefreshTimer?.Dispose();
+    }
+}
