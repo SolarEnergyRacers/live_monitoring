@@ -428,3 +428,6 @@ FodyWeavers.xsd
 *.msm
 *.msp
 **/*.deb
+**/xBee_and_ServerPC/**
+**/logging*/*
+__pychache__/
