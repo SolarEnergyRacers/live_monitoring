@@ -12,9 +12,9 @@
 
 @{ var warnings = VehicleWarnings.Evaluate(DataManager, _isConnected, SettingsService.Current.WarningThresholds); }
 
-<MudGrid>
+<MudGrid Spacing="2">
     <MudItem xs="12" md="9">
-        <MudGrid>
+        <MudGrid Spacing="2">
             @foreach (var stat in MainStats)
             {
                 <MudItem xs="12" sm="6" md="4">
@@ -24,8 +24,7 @@
             }
         </MudGrid>
 
-        <MudText Typo="Typo.subtitle1" Class="mt-4 mb-2">MPPTs</MudText>
-        <MudGrid>
+        <MudGrid Spacing="2" Class="mt-0">
             @foreach (var stat in MpptStats)
             {
                 <MudItem xs="6" sm="3">
@@ -33,6 +32,27 @@
                                    ChartColor="@stat.ChartColor" Value="@ValueText(stat)" Series="@SparkSeries(stat)" />
                 </MudItem>
             }
+        </MudGrid>
+
+        <MudGrid Spacing="2" Class="mt-0">
+            <MudItem xs="12" sm="6" md="4">
+                <StatChartTile Title="Coordinates" Icon="@Icons.Material.Filled.GpsFixed" AccentColor="MudBlazor.Color.Info"
+                               ChartColor="#00BCD4" Value="@GpsCoordinatesText" Series="@GpsSpeedSeries">
+                    @if (LatestGps is not null)
+                    {
+                        <MudStack Spacing="0" Class="mt-2">
+                            <MudText Typo="Typo.body2">Speed: @GpsSpeedText</MudText>
+                            <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">@GpsTimestampText</MudText>
+                            <MudLink Href="@GoogleMapsTrackUrl" Target="_blank" Typo="Typo.caption">
+                                View last @LastGpsPoints.Count points on Google Maps
+                            </MudLink>
+                        </MudStack>
+                    }
+                </StatChartTile>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="8">
+                <DriverMessagePanel />
+            </MudItem>
         </MudGrid>
     </MudItem>
 
@@ -107,6 +127,12 @@
                         </MudStack>
                     </MudItem>
                 }
+                <MudItem xs="6">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        <MudIcon Icon="@Icons.Material.Filled.Circle" Size="MudBlazor.Size.Small" Color="@GpsDotColor" />
+                        <MudText Typo="Typo.body2">GPS</MudText>
+                    </MudStack>
+                </MudItem>
             </MudGrid>
         </MudPaper>
 
@@ -216,12 +242,6 @@
     </MudGrid>
 </MudPaper>
 
-<MudGrid Class="mt-4">
-    <MudItem xs="12" sm="6" md="4">
-        <DriverMessagePanel />
-    </MudItem>
-</MudGrid>
-
 @code {
     private static readonly TimeSpan AvgWindow = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan SparkWindow = TimeSpan.FromSeconds(60);
@@ -314,7 +334,53 @@
 
     private List<EventTimestamp> Events => EventTimestampService.GetAll();
     private List<TimeSeriesPoint> SpeedHistory => DataManager.GetSpeedHistory(SpeedChartWindow);
-    private List<DiagRow> SignalDiagnostics => DiagSignals.Select(BuildDiagRow).ToList();
+    private List<DiagRow> SignalDiagnostics => DiagSignals.Select(BuildDiagRow).Append(BuildGpsDiagRow()).ToList();
+
+    private const int GpsTrackPointCount = 100;
+    private static readonly TimeSpan GpsFlowingThreshold = TimeSpan.FromSeconds(30);
+    private GpsPoint? LatestGps => DataManager.GetLatestGpsPoint();
+    private List<GpsPoint> LastGpsPoints => DataManager.GetLastGpsPoints(GpsTrackPointCount);
+
+    private string GoogleMapsTrackUrl => "https://www.google.com/maps/dir/" + string.Join("/",
+        LastGpsPoints.Select(p => $"{p.Latitude.ToString(System.Globalization.CultureInfo.InvariantCulture)},{p.Longitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}"));
+
+    private string GpsSpeedText => LatestGps is { SpeedKmh: { } spd } ? spd.ToString("0.#") + " km/h" : "--";
+
+    private string GpsCoordinatesText => LatestGps is { } gps
+        ? $"{gps.Latitude.ToString("0.0000")}, {gps.Longitude.ToString("0.0000")}"
+        : "--";
+
+    private string GpsTimestampText => LatestGps is { } gps
+        ? gps.Timestamp.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss") + " UTC"
+        : "No GPS data yet";
+
+    private List<double> GpsSpeedSeries => LastGpsPoints.Select(p => p.SpeedKmh ?? 0).ToList();
+
+    private bool GpsFlowing => LatestGps is { } gps && DateTime.Now - gps.Timestamp < GpsFlowingThreshold;
+    private MudBlazor.Color GpsDotColor => GpsFlowing && _blinkPhase ? MudBlazor.Color.Success : MudBlazor.Color.Default;
+
+
+
+    private DiagRow BuildGpsDiagRow()
+    {
+        var latest = DataManager.GetLatestGpsPoint();
+        if (latest is null)
+            return new DiagRow("GPS API Calls", "0 total", "no data", "--", MudBlazor.Color.Error);
+
+        var age = DateTime.Now - latest.Timestamp;
+        var ageColor = age >= DiagErrorAge
+            ? MudBlazor.Color.Error
+            : age >= DiagWarnAge
+                ? MudBlazor.Color.Warning
+                : MudBlazor.Color.Success;
+
+        return new DiagRow(
+            "GPS API Calls",
+            $"{DataManager.GetGpsPointCount()} total",
+            age.TotalSeconds < 1 ? "<1s" : $"{Math.Floor(age.TotalSeconds)}s",
+            latest.Timestamp.ToString("HH:mm:ss"),
+            ageColor);
+    }
 
     private DiagRow BuildDiagRow(DiagSignal signal)
     {

@@ -2,6 +2,11 @@ html, body {
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
 }
 
+/* No MudAppBar is used in this layout, but MudMainContent still reserves space for one - drop it. */
+.mud-main-content {
+    padding-top: 0 !important;
+}
+
 a, .btn-link {
     color: #006bb7;
 }

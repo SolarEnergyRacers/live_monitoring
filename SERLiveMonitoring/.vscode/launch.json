@@ -11,7 +11,7 @@
             "request": "launch",
             "program": "dotnet",
             "args": [
-                "${workspaceFolder}/bin/Debug/net10.0/SER_Live_Monitoring.dll"
+                "${workspaceFolder}/bin/Debug/net10.0/SERLiveMonitoring.dll"
             ],
             "preLaunchTask": "build",
             "cwd": "${workspaceFolder}",
@@ -27,6 +27,5 @@
                 "pattern": "\\bNow listening on:\\s+(https?://\\S+)"
             }
         }
-
     ]
-}/home/ksc/work/ser6/live_monitoring/SER Live Monitoring/.vscode/launch.json
+}
