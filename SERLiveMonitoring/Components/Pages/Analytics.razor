@@ -419,9 +419,16 @@ else
             DataLabels = new DataLabels
             {
                 Enabled = true,
-                Style = new DataLabelsStyle { Colors = new List<string> { "#000000" } },
+                Style = new DataLabelsStyle { Colors = new List<string> { "#FFFFFF" } },
                 // Pie labels default to showing each slice's percentage; show the Wh value instead.
                 Formatter = "function (val, opts) { return opts.w.config.series[opts.seriesIndex].toFixed(1) + ' Wh'; }"
+            },
+            Tooltip = new Tooltip
+            {
+                Y = new TooltipY
+                {
+                    Formatter = "function (val) { return val.toFixed(1) + ' Wh'; }"
+                }
             }
         };
     }
