@@ -19,7 +19,7 @@ with automatic warnings when something drifts out of range.
   tracking.
 - **GPS tracking** - accepts live location fixes posted from an external device (e.g. a phone) over
   a simple REST endpoint.
-- **Settings** - CAN bus addresses and warning thresholds are editable at runtime, no restart needed.
+- **Settings** - CAN-bus addresses and warning thresholds are editable at runtime, no restart needed.
 
 ## Requirements
 
