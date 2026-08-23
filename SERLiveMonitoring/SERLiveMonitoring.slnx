@@ -1,4 +1,4 @@
 <Solution>
-  <Project Path="SER Live Monitoring.Tests/SERLiveMonitoring.Tests.csproj" />
+  <Project Path="SERLiveMonitoring.Tests/SERLiveMonitoring.Tests.csproj" />
   <Project Path="SERLiveMonitoring.csproj" />
 </Solution>
