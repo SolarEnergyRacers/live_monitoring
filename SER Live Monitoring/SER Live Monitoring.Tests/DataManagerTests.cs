@@ -1,7 +1,7 @@
-using SER_Live_Monitoring.Models;
-using SER_Live_Monitoring.Services;
+using SERLiveMonitoring.Models;
+using SERLiveMonitoring.Services;
 
-namespace SER_Live_Monitoring.Tests;
+namespace SERLiveMonitoring.Tests;
 
 public class DataManagerTests
 {
@@ -128,5 +128,77 @@ public class DataManagerTests
         var messages = _dataManager.GetDriverMessages().ToDictionary(m => m.Id);
         Assert.NotNull(messages[newer.Id].ConfirmedAt);
         Assert.Null(messages[older.Id].ConfirmedAt);
+    }
+
+    private static GpsPoint NewGpsPoint(DateTime ts, double lat, double lon) => new() { Timestamp = ts, Latitude = lat, Longitude = lon };
+
+    [Fact]
+    public void GetLatestGpsPoint_NoData_ReturnsNull()
+    {
+        Assert.Null(_dataManager.GetLatestGpsPoint());
+    }
+
+    [Fact]
+    public void AddGpsPoint_UpdatesLatest()
+    {
+        var now = DateTime.Now;
+        _dataManager.AddGpsPoint(NewGpsPoint(now.AddSeconds(-5), 1, 1));
+        _dataManager.AddGpsPoint(NewGpsPoint(now, 51.5, -0.1));
+
+        var latest = _dataManager.GetLatestGpsPoint();
+
+        Assert.NotNull(latest);
+        Assert.Equal(51.5, latest!.Latitude);
+        Assert.Equal(-0.1, latest.Longitude);
+    }
+
+    [Fact]
+    public void AddGpsPoint_RaisesGpsPointAdded()
+    {
+        GpsPoint? raised = null;
+        _dataManager.GpsPointAdded += p => raised = p;
+
+        var added = _dataManager.AddGpsPoint(NewGpsPoint(DateTime.Now, 1, 2));
+
+        Assert.Same(added, raised);
+    }
+
+    [Fact]
+    public void RestoreGpsPoints_DoesNotRaiseGpsPointAdded()
+    {
+        var raised = false;
+        _dataManager.GpsPointAdded += _ => raised = true;
+
+        _dataManager.RestoreGpsPoints([NewGpsPoint(DateTime.Now, 1, 2)]);
+
+        Assert.False(raised);
+        Assert.NotNull(_dataManager.GetLatestGpsPoint());
+    }
+
+    [Fact]
+    public void GetGpsHistory_Window_ExcludesPointsOlderThanWindow()
+    {
+        var now = DateTime.Now;
+        _dataManager.AddGpsPoint(NewGpsPoint(now.AddMinutes(-10), 1, 1));
+        _dataManager.AddGpsPoint(NewGpsPoint(now, 2, 2));
+
+        var recent = _dataManager.GetGpsHistory(TimeSpan.FromMinutes(1));
+
+        Assert.Single(recent);
+        Assert.Equal(2, recent[0].Latitude);
+    }
+
+    [Fact]
+    public void GetGpsHistory_AbsoluteRange_ReturnsOnlyPointsWithinRange()
+    {
+        var t0 = DateTime.Now;
+        _dataManager.AddGpsPoint(NewGpsPoint(t0, 1, 1));
+        _dataManager.AddGpsPoint(NewGpsPoint(t0.AddSeconds(30), 2, 2));
+        _dataManager.AddGpsPoint(NewGpsPoint(t0.AddMinutes(5), 3, 3));
+
+        var inRange = _dataManager.GetGpsHistory(t0, t0.AddMinutes(1));
+
+        Assert.Equal(2, inRange.Count);
+        Assert.DoesNotContain(inRange, p => p.Latitude == 3);
     }
 }

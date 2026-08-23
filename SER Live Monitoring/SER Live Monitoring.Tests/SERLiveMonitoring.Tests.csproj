@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\SER Live Monitoring.csproj" />
+    <ProjectReference Include="..\SERLiveMonitoring.csproj" />
   </ItemGroup>
 
 </Project>

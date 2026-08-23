@@ -1,3 +1,3 @@
-namespace SER_Live_Monitoring.Models;
+namespace SERLiveMonitoring.Models;
 
 public record TimeSeriesPoint(DateTime Timestamp, double Value);

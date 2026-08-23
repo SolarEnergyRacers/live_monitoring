@@ -1,6 +1,6 @@
-using SER_Live_Monitoring.Models;
+using SERLiveMonitoring.Models;
 
-namespace SER_Live_Monitoring.Services;
+namespace SERLiveMonitoring.Services;
 
 /// <summary>
 /// Evaluates the latest readings buffered in a DataManager against known fault flags and

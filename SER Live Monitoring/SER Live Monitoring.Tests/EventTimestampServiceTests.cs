@@ -1,6 +1,6 @@
-using SER_Live_Monitoring.Services;
+using SERLiveMonitoring.Services;
 
-namespace SER_Live_Monitoring.Tests;
+namespace SERLiveMonitoring.Tests;
 
 public class EventTimestampServiceTests : IDisposable
 {

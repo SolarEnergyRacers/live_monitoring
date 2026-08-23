@@ -1,6 +1,6 @@
-using SER_Live_Monitoring.Models;
+using SERLiveMonitoring.Models;
 
-namespace SER_Live_Monitoring.Services;
+namespace SERLiveMonitoring.Services;
 
 // A timeseries the Analytics page's main chart can plot, with the display metadata (label/unit/
 // color) the chart, legend and tooltip need - kept in one place so adding a new plottable series

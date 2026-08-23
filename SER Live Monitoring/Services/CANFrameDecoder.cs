@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
-using SER_Live_Monitoring.Models;
+using SERLiveMonitoring.Models;
 
-namespace SER_Live_Monitoring.Services;
+namespace SERLiveMonitoring.Services;
 
 public class CANFrameDecoder : IDataDecoder
 {

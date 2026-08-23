@@ -1,4 +1,4 @@
-namespace SER_Live_Monitoring.Models;
+namespace SERLiveMonitoring.Models;
 
 public class Reading
 {

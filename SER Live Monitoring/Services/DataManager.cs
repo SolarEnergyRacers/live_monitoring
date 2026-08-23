@@ -1,5 +1,5 @@
-using SER_Live_Monitoring.Models;
-namespace SER_Live_Monitoring.Services;
+using SERLiveMonitoring.Models;
+namespace SERLiveMonitoring.Services;
 
 /// <summary>
 /// Stores 1Hz timeseries data in a consistent format, interpolates automatically for easier calculations.
@@ -110,6 +110,11 @@ public class DataManager : IDisposable
     private readonly List<DriverMessage> _driverMessages = new();
     private double _lastDriverConfirm;
 
+    // GPS fixes reported by an external device via the REST API (see GpsTrackService). Persisted
+    // separately from the CAN timeseries - GpsTrackService restores prior history into this list at
+    // startup and appends to it (and to disk) on every new fix, so it's always ordered oldest-first.
+    private readonly List<GpsPoint> _gpsPoints = new();
+
     // Keyed storage (rather than one field per series) so PersistenceService can enumerate and
     // restore every series generically, without a parallel hardcoded list to keep in sync.
     private readonly Dictionary<string, TimeSeries> _series = new()
@@ -135,6 +140,10 @@ public class DataManager : IDisposable
     // DriverMessagePanel subscribes to this to know when to StateHasChanged - matching how
     // SerialPortMonitorService.StatusChanged and EventTimestampService.EventsChanged are used.
     public event Action? DriverMessagesChanged;
+
+    // Raised whenever a new GPS fix is added (not for the bulk restore at startup) - lets a future
+    // live map subscribe instead of polling, matching DriverMessagesChanged's purpose.
+    public event Action<GpsPoint>? GpsPointAdded;
 
     public DataManager(SerialPortMonitorService serialService)
     {
@@ -219,6 +228,44 @@ public class DataManager : IDisposable
     {
         lock (_lock)
             return _driverMessages.OrderByDescending(m => m.SentAt).ToList();
+    }
+
+    // Called by GpsTrackService after it has persisted the point, so the two never disagree about
+    // what's been saved. Fires GpsPointAdded for live consumers.
+    public GpsPoint AddGpsPoint(GpsPoint point)
+    {
+        lock (_lock)
+            _gpsPoints.Add(point);
+
+        GpsPointAdded?.Invoke(point);
+        return point;
+    }
+
+    // Bulk-loads history GpsTrackService already had on disk. No event fired - there's no live UI
+    // to notify about data that isn't new, matching TimeSeries' RestoreSeries/AddAndInterpolate split.
+    public void RestoreGpsPoints(IEnumerable<GpsPoint> points)
+    {
+        lock (_lock)
+            _gpsPoints.AddRange(points);
+    }
+
+    public GpsPoint? GetLatestGpsPoint()
+    {
+        lock (_lock)
+            return _gpsPoints.Count == 0 ? null : _gpsPoints[^1];
+    }
+
+    public List<GpsPoint> GetGpsHistory(TimeSpan window)
+    {
+        var cutoff = DateTime.Now - window;
+        lock (_lock)
+            return _gpsPoints.Where(p => p.Timestamp >= cutoff).ToList();
+    }
+
+    public List<GpsPoint> GetGpsHistory(DateTime start, DateTime end)
+    {
+        lock (_lock)
+            return _gpsPoints.Where(p => p.Timestamp >= start && p.Timestamp <= end).ToList();
     }
 
     private void OnReadingReceived(List<Reading> readings)

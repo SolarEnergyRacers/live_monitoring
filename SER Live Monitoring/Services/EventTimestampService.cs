@@ -1,8 +1,8 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
-using SER_Live_Monitoring.Models;
+using SERLiveMonitoring.Models;
 
-namespace SER_Live_Monitoring.Services;
+namespace SERLiveMonitoring.Services;
 
 /// <summary>
 /// Persists user-marked event timestamps (e.g. "driver change", "charge stop") to a SQLite database

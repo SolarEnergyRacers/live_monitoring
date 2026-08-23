@@ -1,7 +1,7 @@
-using SER_Live_Monitoring.Models;
-using SER_Live_Monitoring.Services;
+using SERLiveMonitoring.Models;
+using SERLiveMonitoring.Services;
 
-namespace SER_Live_Monitoring.Tests;
+namespace SERLiveMonitoring.Tests;
 
 // Exercises the real CANFrameDecoder output (not the synthetic NewReading helper other
 // DataManagerTests use) to isolate whether driver_confirm handling breaks specifically when

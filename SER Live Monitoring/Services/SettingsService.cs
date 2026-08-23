@@ -1,7 +1,7 @@
 using System.Text.Json;
-using SER_Live_Monitoring.Models;
+using SERLiveMonitoring.Models;
 
-namespace SER_Live_Monitoring.Services;
+namespace SERLiveMonitoring.Services;
 
 /// <summary>
 /// Loads and persists application settings (CAN bus addresses, warning thresholds) to a JSON file

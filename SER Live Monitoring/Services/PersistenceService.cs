@@ -1,4 +1,4 @@
-namespace SER_Live_Monitoring.Services;
+namespace SERLiveMonitoring.Services;
 
 /// <summary>
 /// Persists DataManager's timeseries to disk as one append-only binary file per series, so history

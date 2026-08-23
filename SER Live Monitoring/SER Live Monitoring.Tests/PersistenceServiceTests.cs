@@ -1,8 +1,8 @@
-using SER_Live_Monitoring.Models;
-using SER_Live_Monitoring.Services;
+using SERLiveMonitoring.Models;
+using SERLiveMonitoring.Services;
 using Microsoft.Extensions.Configuration;
 
-namespace SER_Live_Monitoring.Tests;
+namespace SERLiveMonitoring.Tests;
 
 public class PersistenceServiceTests : IDisposable
 {
