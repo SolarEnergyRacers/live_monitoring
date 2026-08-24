@@ -40,12 +40,20 @@
                                ChartColor="#00BCD4" Value="@GpsCoordinatesText" Series="@GpsSpeedSeries">
                     @if (LatestGps is not null)
                     {
+                        var mapTrack = BuildGoogleMapsTrackExport();
                         <MudStack Spacing="0" Class="mt-2">
                             <MudText Typo="Typo.body2">Speed: @GpsSpeedText</MudText>
                             <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">@GpsTimestampText</MudText>
-                            <MudLink Href="@GoogleMapsTrackUrl" Target="_blank" Typo="Typo.caption">
-                                View last @LastGpsPoints.Count points on Google Maps
+                            <MudLink Href="@mapTrack.Url" Target="_blank" Typo="Typo.caption">
+                                View track on Google Maps (@mapTrack.ExportedCount points)
                             </MudLink>
+                            <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">@BuildGoogleMapsSummary(mapTrack)</MudText>
+                            @if (mapTrack.ReducedByUrlLimit)
+                            {
+                                <MudText Typo="Typo.caption" Color="MudBlazor.Color.Warning">
+                                    URL length limit applied: reduced from @mapTrack.SourceCount to @mapTrack.ExportedCount points.
+                                </MudText>
+                            }
                         </MudStack>
                     }
                 </StatChartTile>
@@ -336,13 +344,10 @@
     private List<TimeSeriesPoint> SpeedHistory => DataManager.GetSpeedHistory(SpeedChartWindow);
     private List<DiagRow> SignalDiagnostics => DiagSignals.Select(BuildDiagRow).Append(BuildGpsDiagRow()).ToList();
 
-    private const int GpsTrackPointCount = 100;
+    private const int GpsSparkPointCount = 1000;
     private static readonly TimeSpan GpsFlowingThreshold = TimeSpan.FromSeconds(30);
     private GpsPoint? LatestGps => DataManager.GetLatestGpsPoint();
-    private List<GpsPoint> LastGpsPoints => DataManager.GetLastGpsPoints(GpsTrackPointCount);
-
-    private string GoogleMapsTrackUrl => "https://www.google.com/maps/dir/" + string.Join("/",
-        LastGpsPoints.Select(p => $"{p.Latitude.ToString(System.Globalization.CultureInfo.InvariantCulture)},{p.Longitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}"));
+    private List<GpsPoint> LastGpsSparkPoints => DataManager.GetLastGpsPoints(GpsSparkPointCount);
 
     private string GpsSpeedText => LatestGps is { SpeedKmh: { } spd } ? spd.ToString("0.#") + " km/h" : "--";
 
@@ -354,10 +359,33 @@
         ? gps.Timestamp.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss") + " UTC"
         : "No GPS data yet";
 
-    private List<double> GpsSpeedSeries => LastGpsPoints.Select(p => p.SpeedKmh ?? 0).ToList();
+    private List<double> GpsSpeedSeries => LastGpsSparkPoints.Select(p => p.SpeedKmh ?? 0).ToList();
 
     private bool GpsFlowing => LatestGps is { } gps && DateTime.Now - gps.Timestamp < GpsFlowingThreshold;
     private MudBlazor.Color GpsDotColor => GpsFlowing && _blinkPhase ? MudBlazor.Color.Success : MudBlazor.Color.Default;
+
+    private int ConfiguredGoogleMapsSourcePointCount =>
+        Math.Clamp(
+            SettingsService.Current.GoogleMapsSourcePointCount,
+            AppSettings.MinGoogleMapsSourcePointCount,
+            AppSettings.MaxGoogleMapsSourcePointCount);
+
+    private GoogleMapsTrackExport BuildGoogleMapsTrackExport()
+    {
+        var points = DataManager.GetLastGpsPoints(ConfiguredGoogleMapsSourcePointCount);
+        return GoogleMapsTrackBuilder.Build(points);
+    }
+
+    private string BuildGoogleMapsSummary(GoogleMapsTrackExport track)
+    {
+        if (track.SourceCount == 0)
+            return "No GPS points available yet.";
+
+        if (track.SourceCount == 1)
+            return $"Source points: 1 (setting: {ConfiguredGoogleMapsSourcePointCount}).";
+
+        return $"Source points: {track.SourceCount} (setting: {ConfiguredGoogleMapsSourcePointCount}). Sampling gap: every {track.GapPoints} point(s) (~{track.GapSeconds}s).";
+    }
 
 
 

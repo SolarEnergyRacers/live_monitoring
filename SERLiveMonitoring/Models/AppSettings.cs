@@ -25,6 +25,11 @@ public class WarningThresholds
 
 public class AppSettings
 {
+    public const int MinGoogleMapsSourcePointCount = 2;
+    public const int MaxGoogleMapsSourcePointCount = 1_000_000;
+    public const int DefaultGoogleMapsSourcePointCount = 3600;
+
     public CanAddressSettings CanAddresses { get; set; } = new();
     public WarningThresholds WarningThresholds { get; set; } = new();
+    public int GoogleMapsSourcePointCount { get; set; } = DefaultGoogleMapsSourcePointCount;
 }
