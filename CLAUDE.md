@@ -8,9 +8,11 @@ This repo has two independent parts:
 
 - **`SERLiveMonitoring/`** — an ASP.NET Core Blazor Server app (.NET 10) that displays live telemetry
   for a solar race car, received as CAN-bus frames over a serial/radio link.
-- **`data/`** — a standalone Python script (`simulate_solar_car.py`) that fabricates the same
-  wire-format traffic over a real/virtual COM port, so the app can be developed and tested without
-  real vehicle hardware.
+- **`data/`** — standalone Python scripts, independent of each other: `simulate_solar_car.py`
+  fabricates wire-format CAN traffic over a real/virtual COM port so the app can be developed and
+  tested without real vehicle hardware; `read_timeseries.py` reads a persisted `.bin` series file
+  directly off disk; `fetch_timeseries.py` is a minimal example of pulling data from the app's
+  `/api/timeseries` export endpoint into pandas.
 
 There is no root-level solution file; all `dotnet` commands run from inside `SERLiveMonitoring/`.
 
@@ -40,6 +42,12 @@ python data/simulate_solar_car.py --mode ac         # only the AC controller fra
 python data/simulate_solar_car.py --mode ac_dc      # only AC + DC dash-unit frames
 python data/simulate_solar_car.py --mode no_mc      # every device except the motor controller
 python data/simulate_solar_car.py --radio           # also simulate a lossy/split radio link
+```
+
+```bash
+# Pull timeseries data over the network for analysis (see /api/timeseries below)
+pip install requests pandas
+python data/fetch_timeseries.py --host localhost:5240 --minutes 30
 ```
 
 ## Architecture
@@ -145,6 +153,19 @@ GPS points (`DataManager.GetLastGpsPoints` → `GoogleMapsTrackBuilder.Build`). 
 URLs have a practical length limit, so the builder binary-searches for the largest evenly-spaced
 subsample of points that still fits under that limit rather than always linking every point; how many
 recent points it starts from is `AppSettings.GoogleMapsSourcePointCount`, editable on `/settings`.
+
+### Timeseries export API
+
+`GET /api/timeseries?start={unixSeconds}&end={unixSeconds}` (`Endpoints/TimeseriesEndpoints.cs`)
+returns every series `DataManager` tracks as one CSV table — one row per second, one column per
+series (see `DataManager.SeriesNames`) — for external analysis tooling (e.g. a Python script pulling
+a race's data into pandas), not the Blazor UI. `DataManager.GetAllSeriesRange` fetches each series'
+raw points for the range; `TimeseriesCsvBuilder` outer-joins them onto the union of timestamps
+actually present (series can start/stop recording at slightly different times, e.g. a device
+connecting late) and leaves a blank cell — not 0 — wherever a series has no value at a given second,
+so `pandas.read_csv` reads it as NaN rather than a false zero reading. Same trusted-network/no-auth
+assumption as the GPS API, no CORS policy (irrelevant for a non-browser client like `requests`).
+`data/fetch_timeseries.py` is a minimal example consumer.
 
 ### Pages (`Components/Pages/`)
 
