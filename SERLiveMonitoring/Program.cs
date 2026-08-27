@@ -74,5 +74,6 @@ app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 app.MapGpsEndpoints();
+app.MapTimeseriesEndpoints();
 
 app.Run();

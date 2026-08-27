@@ -13,6 +13,7 @@ public class SettingsServiceTests
         Assert.Equal(0x6A0, service.Current.CanAddresses.Mppt1Addr);
         Assert.Equal(60, service.Current.WarningThresholds.MaxCellTempC);
         Assert.Equal(AppSettings.DefaultGoogleMapsSourcePointCount, service.Current.GoogleMapsSourcePointCount);
+        Assert.False(service.Current.NoMcCanData);
     }
 
     [Fact]
@@ -25,6 +26,7 @@ public class SettingsServiceTests
         updated.CanAddresses.Mppt1Addr = 0x111;
         updated.WarningThresholds.MaxCellTempC = 45;
         updated.GoogleMapsSourcePointCount = 7200;
+        updated.NoMcCanData = true;
         first.Update(updated);
 
         // Simulates the app restarting and loading whatever was last saved.
@@ -33,6 +35,7 @@ public class SettingsServiceTests
         Assert.Equal(0x111, second.Current.CanAddresses.Mppt1Addr);
         Assert.Equal(45, second.Current.WarningThresholds.MaxCellTempC);
         Assert.Equal(7200, second.Current.GoogleMapsSourcePointCount);
+        Assert.True(second.Current.NoMcCanData);
     }
 
     [Fact]

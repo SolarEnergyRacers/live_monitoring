@@ -6,11 +6,15 @@ namespace SERLiveMonitoring.Tests;
 public class GpsTrackServiceTests : IDisposable
 {
     private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"ser-live-monitoring-tests-{Guid.NewGuid():N}.db");
-    private readonly DataManager _dataManager = new(new SerialPortMonitorService(new CANFrameDecoder(new SettingsService(TestSettingsPath.NewTempPath()))));
+    private readonly DataManager _dataManager = NewDataManager();
 
     private static GpsPoint NewPoint(DateTime ts, double lat, double lon) => new() { Timestamp = ts, Latitude = lat, Longitude = lon };
 
-    private static DataManager NewDataManager() => new(new SerialPortMonitorService(new CANFrameDecoder(new SettingsService(TestSettingsPath.NewTempPath()))));
+    private static DataManager NewDataManager()
+    {
+        var settings = new SettingsService(TestSettingsPath.NewTempPath());
+        return new DataManager(new SerialPortMonitorService(new CANFrameDecoder(settings)), settings);
+    }
 
     [Fact]
     public void Add_AssignsAnId()

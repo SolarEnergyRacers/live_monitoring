@@ -6,12 +6,14 @@ namespace SERLiveMonitoring.Tests;
 public class AnalyticsDataServiceTests : IDisposable
 {
     private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"ser-live-monitoring-tests-{Guid.NewGuid():N}.db");
-    private readonly DataManager _dataManager = new(new SerialPortMonitorService(new CANFrameDecoder(new SettingsService(TestSettingsPath.NewTempPath()))));
+    private readonly SettingsService _settings = new(TestSettingsPath.NewTempPath());
+    private readonly DataManager _dataManager;
     private readonly EventTimestampService _eventService;
     private readonly AnalyticsDataService _analytics;
 
     public AnalyticsDataServiceTests()
     {
+        _dataManager = new DataManager(new SerialPortMonitorService(new CANFrameDecoder(_settings)), _settings);
         _eventService = new EventTimestampService(_dbPath);
         _analytics = new AnalyticsDataService(_dataManager, _eventService);
     }

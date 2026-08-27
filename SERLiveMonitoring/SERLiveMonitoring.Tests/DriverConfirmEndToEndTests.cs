@@ -11,8 +11,9 @@ public class DriverConfirmEndToEndTests
     [Fact]
     public void RealDecodedDcFrame_WithConfirmBitSet_ConfirmsLatestMessage()
     {
-        var decoder = new CANFrameDecoder(new SettingsService(TestSettingsPath.NewTempPath()));
-        var dataManager = new DataManager(new SerialPortMonitorService(decoder));
+        var settings = new SettingsService(TestSettingsPath.NewTempPath());
+        var decoder = new CANFrameDecoder(settings);
+        var dataManager = new DataManager(new SerialPortMonitorService(decoder), settings);
 
         var message = dataManager.AddDriverMessage(DriverMessageSeverity.Info, "test message");
 

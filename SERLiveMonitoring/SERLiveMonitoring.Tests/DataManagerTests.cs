@@ -5,7 +5,13 @@ namespace SERLiveMonitoring.Tests;
 
 public class DataManagerTests
 {
-    private readonly DataManager _dataManager = new(new SerialPortMonitorService(new CANFrameDecoder(new SettingsService(TestSettingsPath.NewTempPath()))));
+    private readonly SettingsService _settings = new(TestSettingsPath.NewTempPath());
+    private readonly DataManager _dataManager;
+
+    public DataManagerTests()
+    {
+        _dataManager = new DataManager(new SerialPortMonitorService(new CANFrameDecoder(_settings)), _settings);
+    }
 
     private static Reading NewReading(DateTime ts, string name, double value, params (string Key, string Value)[] tags)
         => new() { Timestamp = ts, ReadingName = name, Value = value, Unit = "", Tags = tags.ToDictionary(t => t.Key, t => t.Value) };
@@ -76,6 +82,82 @@ public class DataManagerTests
         var total = _dataManager.GetSeries(ChartSeries.SolarTotal, TimeSpan.FromSeconds(15));
 
         Assert.Equal(400, total[^1]);
+    }
+
+    [Fact]
+    public void GetAllSeriesRange_ReturnsEveryStoredSeriesByName()
+    {
+        var now = DateTime.Now;
+        _dataManager.UpdateTimeseries(
+        [
+            NewReading(now, "speed", 42),
+            NewReading(now, "calc_batt_power", 500),
+        ]);
+
+        var all = _dataManager.GetAllSeriesRange(now.AddSeconds(-5), now.AddSeconds(1));
+
+        Assert.Equal(_dataManager.SeriesNames.Count, all.Count);
+        Assert.Equal(42, all["speed"].Single().Value);
+        Assert.Equal(500, all["battery_power"].Single().Value);
+        // A series nothing has ever reported to must still be present, just empty - so callers
+        // (e.g. the CSV export) don't need to special-case a missing key.
+        Assert.Empty(all["motor_current"]);
+    }
+
+    [Fact]
+    public void NoMcCanData_DerivesMotorCurrentAndPowerFromBatteryPlusTotalMpptCurrent()
+    {
+        // data/simulate_solar_car.py defines net_current (sent as batt_curr) as
+        // motor_in_current - total_mppt_current, so motor current must be recovered as
+        // batt_curr + total mppt_out_current - not batt_curr minus it, which is the easy sign
+        // mistake this test guards against.
+        _settings.Update(new AppSettings { NoMcCanData = true });
+        var now = DateTime.Now;
+
+        _dataManager.Ingest(
+        [
+            NewReading(now, "batt_volt", 100),
+            NewReading(now, "batt_curr", 5),
+            NewReading(now, "mppt_out_current", 2, ("mppt_id", "1")),
+            NewReading(now, "mppt_out_current", 3, ("mppt_id", "2")),
+        ]);
+
+        // motor_current = 5 + (2 + 3) = 10A; motor_power = 10A * 100V = 1000W.
+        Assert.Equal(1000, _dataManager.GetAverage(ChartSeries.MotorPower, TimeSpan.FromSeconds(15)));
+    }
+
+    [Fact]
+    public void NoMcCanData_RegenIntoBattery_ProducesNegativeMotorPower()
+    {
+        // Battery being charged (negative batt_curr) with no MPPT contribution means the motor is
+        // regenerating, which must come out negative, not just derive some positive draw.
+        _settings.Update(new AppSettings { NoMcCanData = true });
+        var now = DateTime.Now;
+
+        _dataManager.Ingest(
+        [
+            NewReading(now, "batt_volt", 100),
+            NewReading(now, "batt_curr", -8),
+        ]);
+
+        Assert.Equal(-800, _dataManager.GetAverage(ChartSeries.MotorPower, TimeSpan.FromSeconds(15)));
+    }
+
+    [Fact]
+    public void NoMcCanData_Off_IgnoresBatteryAndMpptCurrentForMotorPower()
+    {
+        // Default/off behavior must be untouched: without the setting, motor power should only ever
+        // come from real mc_curr_in/mc_volt_in frames, never from the battery/MPPT balance.
+        var now = DateTime.Now;
+
+        _dataManager.Ingest(
+        [
+            NewReading(now, "batt_volt", 100),
+            NewReading(now, "batt_curr", 5),
+            NewReading(now, "mppt_out_current", 2, ("mppt_id", "1")),
+        ]);
+
+        Assert.Null(_dataManager.GetAverage(ChartSeries.MotorPower, TimeSpan.FromSeconds(15)));
     }
 
     [Fact]

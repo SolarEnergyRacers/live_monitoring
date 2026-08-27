@@ -5,8 +5,14 @@ namespace SERLiveMonitoring.Tests;
 
 public class VehicleWarningsTests
 {
-    private readonly DataManager _dataManager = new(new SerialPortMonitorService(new CANFrameDecoder(new SettingsService(TestSettingsPath.NewTempPath()))));
+    private readonly SettingsService _settings = new(TestSettingsPath.NewTempPath());
+    private readonly DataManager _dataManager;
     private readonly WarningThresholds _thresholds = new();
+
+    public VehicleWarningsTests()
+    {
+        _dataManager = new DataManager(new SerialPortMonitorService(new CANFrameDecoder(_settings)), _settings);
+    }
 
     private static Reading NewReading(string name, double value, params (string Key, string Value)[] tags)
         => new() { Timestamp = DateTime.Now, ReadingName = name, Value = value, Unit = "", Tags = tags.ToDictionary(t => t.Key, t => t.Value) };

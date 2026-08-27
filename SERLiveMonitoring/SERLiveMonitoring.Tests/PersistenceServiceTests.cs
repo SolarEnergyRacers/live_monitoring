@@ -16,7 +16,7 @@ public class PersistenceServiceTests : IDisposable
     }
 
     private static DataManager NewDataManager(SettingsService settings)
-        => new(new SerialPortMonitorService(new CANFrameDecoder(settings)));
+        => new(new SerialPortMonitorService(new CANFrameDecoder(settings)), settings);
 
     private static IConfiguration NewStorageConfig(string dataDir)
         => new ConfigurationBuilder()

@@ -53,6 +53,13 @@
                                  Step="1"
                                  Variant="Variant.Outlined"
                                  HelperText="Number of latest GPS points considered before automatic URL-safe downsampling." />
+                <MudDivider />
+                <MudCheckBox T="bool" @bind-Value="_noMcCanData" Label="No MC CAN Data"
+                             Color="MudBlazor.Color.Primary" />
+                <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary" Class="mt-n2">
+                    Enable if the motor controller doesn't send current/power over CAN. Motor current
+                    and power are then derived from battery current plus total MPPT output current.
+                </MudText>
             </MudStack>
         </MudPaper>
     </MudItem>
@@ -89,6 +96,7 @@
     private List<AddressField> _addressFields = [];
     private WarningThresholds _thresholds = new();
     private int _googleMapsSourcePointCount = AppSettings.DefaultGoogleMapsSourcePointCount;
+    private bool _noMcCanData;
     protected override void OnInitialized() => LoadFromSettings(SettingsService.Current);
 
     private void LoadFromSettings(AppSettings settings)
@@ -111,6 +119,8 @@
             settings.GoogleMapsSourcePointCount,
             AppSettings.MinGoogleMapsSourcePointCount,
             AppSettings.MaxGoogleMapsSourcePointCount);
+
+        _noMcCanData = settings.NoMcCanData;
 
         _addressFields = FieldDefs.Select(f => new AddressField
         {
@@ -154,7 +164,8 @@
         {
             CanAddresses = addresses,
             WarningThresholds = _thresholds,
-            GoogleMapsSourcePointCount = _googleMapsSourcePointCount
+            GoogleMapsSourcePointCount = _googleMapsSourcePointCount,
+            NoMcCanData = _noMcCanData
         });
         Snackbar.Add("Settings saved", Severity.Success);
     }

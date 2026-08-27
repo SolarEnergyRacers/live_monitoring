@@ -32,4 +32,9 @@ public class AppSettings
     public CanAddressSettings CanAddresses { get; set; } = new();
     public WarningThresholds WarningThresholds { get; set; } = new();
     public int GoogleMapsSourcePointCount { get; set; } = DefaultGoogleMapsSourcePointCount;
+
+    // When the motor controller board isn't wired up (or its model doesn't put current/power on the
+    // CAN bus at all), DataManager derives motor current/power from the battery/MPPT current balance
+    // instead of mc_curr_in/mc_volt_in - see DataManager.UpdateDerivedMotorPower.
+    public bool NoMcCanData { get; set; } = false;
 }

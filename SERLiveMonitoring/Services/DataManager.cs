@@ -103,6 +103,7 @@ public enum ChartSeries
 public class DataManager : IDisposable
 {
     private readonly SerialPortMonitorService _serialService;
+    private readonly SettingsService _settings;
     private readonly Lock _lock = new();
     private readonly Dictionary<string, Reading> _latestByKey = new();
 
@@ -145,9 +146,10 @@ public class DataManager : IDisposable
     // live map subscribe instead of polling, matching DriverMessagesChanged's purpose.
     public event Action<GpsPoint>? GpsPointAdded;
 
-    public DataManager(SerialPortMonitorService serialService)
+    public DataManager(SerialPortMonitorService serialService, SettingsService settings)
     {
         _serialService = serialService;
+        _settings = settings;
         _serialService.ReadingReceived += OnReadingReceived;
     }
 
@@ -316,21 +318,40 @@ public class DataManager : IDisposable
                     }
                     break;
                 case "mc_curr_in":
-                    _series["motor_current"].AddAndInterpolate(reading);
-                    UpdateMotorPower(reading.Timestamp);
+                    // If the MC doesn't send CAN data at all, it can't send this either - but guard
+                    // explicitly anyway so a stray/leftover mc_curr_in frame can't clobber the
+                    // derived value once the setting is on.
+                    if (!_settings.Current.NoMcCanData)
+                    {
+                        _series["motor_current"].AddAndInterpolate(reading);
+                        UpdateMotorPower(reading.Timestamp);
+                    }
                     break;
                 case "mc_volt_in":
-                    _series["motor_voltage"].AddAndInterpolate(reading);
-                    UpdateMotorPower(reading.Timestamp);
+                    if (!_settings.Current.NoMcCanData)
+                    {
+                        _series["motor_voltage"].AddAndInterpolate(reading);
+                        UpdateMotorPower(reading.Timestamp);
+                    }
                     break;
                 case "calc_batt_power":
                     _series["battery_power"].AddAndInterpolate(reading);
                     break;
                 case "batt_volt":
                     _series["battery_voltage"].AddAndInterpolate(reading);
+                    if (_settings.Current.NoMcCanData)
+                        UpdateDerivedMotorPower(reading.Timestamp);
                     break;
                 case "batt_curr":
                     _series["battery_current"].AddAndInterpolate(reading);
+                    if (_settings.Current.NoMcCanData)
+                        UpdateDerivedMotorPower(reading.Timestamp);
+                    break;
+                case "mppt_out_current":
+                    // Only feeds the NoMcCanData derivation below - there's no standalone "mppt
+                    // current" series otherwise (calc_mppt_out_power already covers per-MPPT power).
+                    if (_settings.Current.NoMcCanData)
+                        UpdateDerivedMotorPower(reading.Timestamp);
                     break;
                 default:
                     break;
@@ -351,6 +372,48 @@ public class DataManager : IDisposable
             Timestamp = timestamp,
             ReadingName = "calc_motor_power",
             Value = current.Value * voltage.Value,
+            Unit = "W",
+            Tags = new()
+        });
+    }
+
+    private static readonly string[] MpptIds = ["1", "2", "3", "4"];
+
+    // Used when the motor controller doesn't put current/power on the CAN bus at all (settings
+    // checkbox "No MC CAN Data"). data/simulate_solar_car.py defines the pack's net current as
+    // motor draw minus total MPPT output current (net_current = motor_in_current -
+    // total_mppt_current, sent as batt_curr), so motor current is battery current *plus* the summed
+    // MPPT output current - not minus, even though "battery current less what the panels made" reads
+    // intuitively like the right subtraction; the BMS convention makes battery current already net of
+    // MPPT contribution, so adding it back out recovers the motor draw.
+    // There's no equivalent way to derive motor voltage, but battery, MPPT-output, and motor-input
+    // voltage are all the same shared bus (see CLAUDE.md's DataManager notes), so battery voltage
+    // stands in for it here. Must only be called while _lock is held.
+    private void UpdateDerivedMotorPower(DateTime timestamp)
+    {
+        if (_latestByKey.GetValueOrDefault(BuildKey("batt_curr", Array.Empty<(string Key, string Value)>())) is not { } batteryCurrent
+            || _latestByKey.GetValueOrDefault(BuildKey("batt_volt", Array.Empty<(string Key, string Value)>())) is not { } batteryVoltage)
+            return;
+
+        var totalMpptCurrent = MpptIds.Sum(id =>
+            _latestByKey.GetValueOrDefault(BuildKey("mppt_out_current", new[] { ("mppt_id", id) }))?.Value ?? 0);
+
+        var motorCurrent = batteryCurrent.Value + totalMpptCurrent;
+
+        _series["motor_current"].AddAndInterpolate(new Reading
+        {
+            Timestamp = timestamp,
+            ReadingName = "calc_motor_current",
+            Value = motorCurrent,
+            Unit = "A",
+            Tags = new()
+        });
+
+        _series["motor_power"].AddAndInterpolate(new Reading
+        {
+            Timestamp = timestamp,
+            ReadingName = "calc_motor_power",
+            Value = motorCurrent * batteryVoltage.Value,
             Unit = "W",
             Tags = new()
         });
@@ -402,6 +465,16 @@ public class DataManager : IDisposable
 
             return ResolveSeries(series)?.GetTimeframeWithTimestamps(start, end) ?? new();
         }
+    }
+
+    // Every stored series for [start, end], keyed by series name (see SeriesNames) - for the bulk
+    // export endpoint used by external analysis tooling. Unlike GetSeriesRange this isn't scoped to
+    // a single ChartSeries, so it also includes channels with no ChartSeries entry of their own
+    // (motor_current, motor_voltage) - and unlike SolarTotal, nothing here is summed/derived.
+    public Dictionary<string, List<(long UnixTimestamp, double Value)>> GetAllSeriesRange(DateTime start, DateTime end)
+    {
+        lock (_lock)
+            return _series.ToDictionary(kv => kv.Key, kv => kv.Value.GetTimeframeWithTimestamps(start, end));
     }
 
     // The earliest and latest timestamps recorded across every series, i.e. the full extent of

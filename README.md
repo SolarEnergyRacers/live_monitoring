@@ -54,6 +54,7 @@ null-modem/virtual COM port pair and connect the app to the other end.
 pip install pyserial
 python data/simulate_solar_car.py                # simulate every device
 python data/simulate_solar_car.py --mode ac_dc    # simulate only the AC + DC units
+python data/simulate_solar_car.py --mode no_mc    # simulate everything except the motor controller
 python data/simulate_solar_car.py --radio         # also simulate a lossy radio link
 ```
 

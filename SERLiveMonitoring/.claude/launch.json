@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ser-live-monitoring",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "SERLiveMonitoring.csproj"],
+      "port": 5240
+    }
+  ]
+}

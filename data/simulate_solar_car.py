@@ -73,6 +73,9 @@ MODES = {
     "full": set(DEVICE_TAGS),
     "ac": {"Ac"},
     "ac_dc": {"Ac", "Dc"},
+    # Everything except the motor controller, for testing the app's "No MC CAN Data" setting
+    # (DataManager derives motor current/power from battery + MPPT current instead).
+    "no_mc": set(DEVICE_TAGS) - {"Mc"},
 }
 
 FAULT_HOLD_SECONDS = 4.0
@@ -592,7 +595,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Solar car CAN telemetry simulator")
     parser.add_argument("--mode", choices=sorted(MODES), default="full",
                          help="Which devices to simulate: full (everything, default), "
-                              "ac (AC controller only), ac_dc (AC + DC dash unit only)")
+                              "ac (AC controller only), ac_dc (AC + DC dash unit only), "
+                              "no_mc (everything except the motor controller)")
     parser.add_argument("--radio", action="store_true",
                          help="Simulate an unreliable radio link: some frames arrive truncated "
                               "(rest of the bytes lost) and some arrive whole but split across "
