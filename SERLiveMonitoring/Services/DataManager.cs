@@ -255,6 +255,12 @@ public class DataManager : IDisposable
             return _gpsPoints.Count == 0 ? null : _gpsPoints[^1];
     }
 
+    public int GetGpsPointCount()
+    {
+        lock (_lock)
+            return _gpsPoints.Count;
+    }
+
     public List<GpsPoint> GetGpsHistory(TimeSpan window)
     {
         var cutoff = DateTime.Now - window;
@@ -266,6 +272,13 @@ public class DataManager : IDisposable
     {
         lock (_lock)
             return _gpsPoints.Where(p => p.Timestamp >= start && p.Timestamp <= end).ToList();
+    }
+
+    // Oldest-first, for drawing as a track (Google Maps directions URLs read waypoints in order).
+    public List<GpsPoint> GetLastGpsPoints(int count)
+    {
+        lock (_lock)
+            return _gpsPoints.Skip(Math.Max(0, _gpsPoints.Count - count)).ToList();
     }
 
     private void OnReadingReceived(List<Reading> readings)

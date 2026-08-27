@@ -27,6 +27,8 @@
             </MudStack>
         }
     </div>
+
+    @ChildContent
 </MudPaper>
 
 @code {
@@ -36,6 +38,7 @@
     [Parameter] public MudBlazor.Color AccentColor { get; set; } = MudBlazor.Color.Primary;
     [Parameter] public string ChartColor { get; set; } = "#594AE2";
     [Parameter, EditorRequired] public List<double> Series { get; set; } = new();
+    [Parameter] public RenderFragment? ChildContent { get; set; }
 
     private const int ChartHeight = 80;
 

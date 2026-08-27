@@ -44,6 +44,15 @@
                 <MudNumericField T="double" Label="Low MPPT power ratio" @bind-Value="_thresholds.LowMpptPowerRatio" Min="0" Max="1" Step="0.05" Variant="Variant.Outlined"
                                  HelperText="Flag a panel once it makes less than this fraction of the other active panels' average" />
                 <MudNumericField T="double" Label="Device communication timeout" @bind-Value="_thresholds.CommTimeoutSeconds" Min="1" Step="1" Adornment="Adornment.End" AdornmentText="s" Variant="Variant.Outlined" />
+                <MudDivider />
+                <MudNumericField T="int"
+                                 Label="Google Maps source points"
+                                 @bind-Value="_googleMapsSourcePointCount"
+                                 Min="@AppSettings.MinGoogleMapsSourcePointCount"
+                                 Max="@AppSettings.MaxGoogleMapsSourcePointCount"
+                                 Step="1"
+                                 Variant="Variant.Outlined"
+                                 HelperText="Number of latest GPS points considered before automatic URL-safe downsampling." />
             </MudStack>
         </MudPaper>
     </MudItem>
@@ -79,6 +88,7 @@
 
     private List<AddressField> _addressFields = [];
     private WarningThresholds _thresholds = new();
+    private int _googleMapsSourcePointCount = AppSettings.DefaultGoogleMapsSourcePointCount;
     protected override void OnInitialized() => LoadFromSettings(SettingsService.Current);
 
     private void LoadFromSettings(AppSettings settings)
@@ -96,6 +106,11 @@
             LowMpptPowerRatio = settings.WarningThresholds.LowMpptPowerRatio,
             CommTimeoutSeconds = settings.WarningThresholds.CommTimeoutSeconds
         };
+
+        _googleMapsSourcePointCount = Math.Clamp(
+            settings.GoogleMapsSourcePointCount,
+            AppSettings.MinGoogleMapsSourcePointCount,
+            AppSettings.MaxGoogleMapsSourcePointCount);
 
         _addressFields = FieldDefs.Select(f => new AddressField
         {
@@ -129,7 +144,18 @@
             return;
         }
 
-        SettingsService.Update(new AppSettings { CanAddresses = addresses, WarningThresholds = _thresholds });
+        if (_googleMapsSourcePointCount is < AppSettings.MinGoogleMapsSourcePointCount or > AppSettings.MaxGoogleMapsSourcePointCount)
+        {
+            Snackbar.Add($"Google Maps source points must be between {AppSettings.MinGoogleMapsSourcePointCount} and {AppSettings.MaxGoogleMapsSourcePointCount}", Severity.Error);
+            return;
+        }
+
+        SettingsService.Update(new AppSettings
+        {
+            CanAddresses = addresses,
+            WarningThresholds = _thresholds,
+            GoogleMapsSourcePointCount = _googleMapsSourcePointCount
+        });
         Snackbar.Add("Settings saved", Severity.Success);
     }
 
