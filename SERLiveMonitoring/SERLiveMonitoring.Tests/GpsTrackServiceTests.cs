@@ -8,7 +8,7 @@ public class GpsTrackServiceTests : IDisposable
     private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"ser-live-monitoring-tests-{Guid.NewGuid():N}.db");
     private readonly DataManager _dataManager = NewDataManager();
 
-    private static GpsPoint NewPoint(DateTime ts, double lat, double lon) => new() { Timestamp = ts, Latitude = lat, Longitude = lon };
+    private static GpsPoint NewPoint(DateTime ts, double lat, double lon) => new() { DeviceName = "test-device", Timestamp = ts, Latitude = lat, Longitude = lon };
 
     private static DataManager NewDataManager()
     {
@@ -61,7 +61,7 @@ public class GpsTrackServiceTests : IDisposable
     public void OptionalFields_RoundTripThroughPersistence()
     {
         using (var service = new GpsTrackService(_dataManager, _dbPath))
-            service.Add(new GpsPoint { Timestamp = DateTime.Now, Latitude = 1, Longitude = 2, SpeedKmh = 42.5, AccuracyMeters = 3.2 });
+            service.Add(new GpsPoint { DeviceName = "test-device", Timestamp = DateTime.Now, Latitude = 1, Longitude = 2, SpeedKmh = 42.5, AccuracyMeters = 3.2 });
 
         using var freshDataManager = NewDataManager();
         using var reopened = new GpsTrackService(freshDataManager, _dbPath);

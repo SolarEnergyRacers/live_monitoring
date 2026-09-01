@@ -212,7 +212,7 @@ public class DataManagerTests
         Assert.Null(messages[older.Id].ConfirmedAt);
     }
 
-    private static GpsPoint NewGpsPoint(DateTime ts, double lat, double lon) => new() { Timestamp = ts, Latitude = lat, Longitude = lon };
+    private static GpsPoint NewGpsPoint(DateTime ts, double lat, double lon) => new() { DeviceName = "test-device", Timestamp = ts, Latitude = lat, Longitude = lon };
 
     [Fact]
     public void GetLatestGpsPoint_NoData_ReturnsNull()

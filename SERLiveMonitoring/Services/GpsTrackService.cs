@@ -41,7 +41,27 @@ public class GpsTrackService : IDisposable
             """;
         cmd.ExecuteNonQuery();
 
+        MigrateAddDeviceNameColumn();
         LoadAll();
+    }
+
+    // DeviceName was added after GpsPoints already shipped, so existing databases need the column
+    // added on top rather than recreated - SQLite has no "ADD COLUMN IF NOT EXISTS", so check first.
+    private void MigrateAddDeviceNameColumn()
+    {
+        using var checkCmd = _connection.CreateCommand();
+        checkCmd.CommandText = "PRAGMA table_info(GpsPoints);";
+        using var reader = checkCmd.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), "DeviceName", StringComparison.OrdinalIgnoreCase))
+                return;
+        }
+        reader.Close();
+
+        using var alterCmd = _connection.CreateCommand();
+        alterCmd.CommandText = "ALTER TABLE GpsPoints ADD COLUMN DeviceName TEXT NOT NULL DEFAULT '';";
+        alterCmd.ExecuteNonQuery();
     }
 
     // Restores previously-persisted points into DataManager once at startup, ordered oldest-first
@@ -51,7 +71,7 @@ public class GpsTrackService : IDisposable
         var points = new List<GpsPoint>();
 
         using var cmd = _connection.CreateCommand();
-        cmd.CommandText = "SELECT Id, Timestamp, Latitude, Longitude, SpeedKmh, AccuracyMeters FROM GpsPoints ORDER BY Timestamp ASC";
+        cmd.CommandText = "SELECT Id, Timestamp, Latitude, Longitude, SpeedKmh, AccuracyMeters, DeviceName FROM GpsPoints ORDER BY Timestamp ASC";
 
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
@@ -63,7 +83,8 @@ public class GpsTrackService : IDisposable
                 Latitude = reader.GetDouble(2),
                 Longitude = reader.GetDouble(3),
                 SpeedKmh = reader.IsDBNull(4) ? null : reader.GetDouble(4),
-                AccuracyMeters = reader.IsDBNull(5) ? null : reader.GetDouble(5)
+                AccuracyMeters = reader.IsDBNull(5) ? null : reader.GetDouble(5),
+                DeviceName = reader.GetString(6)
             });
         }
 
@@ -78,8 +99,8 @@ public class GpsTrackService : IDisposable
         {
             using var cmd = _connection.CreateCommand();
             cmd.CommandText = """
-                INSERT INTO GpsPoints (Timestamp, Latitude, Longitude, SpeedKmh, AccuracyMeters)
-                VALUES ($timestamp, $latitude, $longitude, $speedKmh, $accuracyMeters);
+                INSERT INTO GpsPoints (Timestamp, Latitude, Longitude, SpeedKmh, AccuracyMeters, DeviceName)
+                VALUES ($timestamp, $latitude, $longitude, $speedKmh, $accuracyMeters, $deviceName);
                 SELECT last_insert_rowid();
                 """;
             cmd.Parameters.AddWithValue("$timestamp", point.Timestamp.ToString("o", CultureInfo.InvariantCulture));
@@ -87,11 +108,13 @@ public class GpsTrackService : IDisposable
             cmd.Parameters.AddWithValue("$longitude", point.Longitude);
             cmd.Parameters.AddWithValue("$speedKmh", (object?)point.SpeedKmh ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$accuracyMeters", (object?)point.AccuracyMeters ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$deviceName", point.DeviceName);
 
             var id = (long)cmd.ExecuteScalar()!;
             added = new GpsPoint
             {
                 Id = id,
+                DeviceName = point.DeviceName,
                 Timestamp = point.Timestamp,
                 Latitude = point.Latitude,
                 Longitude = point.Longitude,

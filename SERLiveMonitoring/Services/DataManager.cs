@@ -257,10 +257,32 @@ public class DataManager : IDisposable
             return _gpsPoints.Count == 0 ? null : _gpsPoints[^1];
     }
 
+    // Latest fix from a specific device, for when multiple reporters are active and the UI needs
+    // to show just one of them rather than whichever happened to report most recently overall.
+    public GpsPoint? GetLatestGpsPoint(string deviceName)
+    {
+        lock (_lock)
+            return _gpsPoints.LastOrDefault(p => p.DeviceName == deviceName);
+    }
+
+    // Distinct device names seen so far, oldest-first-seen, so a device selector lists them in the
+    // order they started reporting rather than shuffling as new fixes arrive.
+    public List<string> GetGpsDeviceNames()
+    {
+        lock (_lock)
+            return _gpsPoints.Select(p => p.DeviceName).Distinct().ToList();
+    }
+
     public int GetGpsPointCount()
     {
         lock (_lock)
             return _gpsPoints.Count;
+    }
+
+    public int GetGpsPointCount(string deviceName)
+    {
+        lock (_lock)
+            return _gpsPoints.Count(p => p.DeviceName == deviceName);
     }
 
     public List<GpsPoint> GetGpsHistory(TimeSpan window)
@@ -281,6 +303,14 @@ public class DataManager : IDisposable
     {
         lock (_lock)
             return _gpsPoints.Skip(Math.Max(0, _gpsPoints.Count - count)).ToList();
+    }
+
+    // Same as above, restricted to one device's points - needed once more than one device reports,
+    // since otherwise another device's fixes would dilute the requested count.
+    public List<GpsPoint> GetLastGpsPoints(int count, string deviceName)
+    {
+        lock (_lock)
+            return _gpsPoints.Where(p => p.DeviceName == deviceName).TakeLast(count).ToList();
     }
 
     private void OnReadingReceived(List<Reading> readings)

@@ -52,6 +52,7 @@ public class GoogleMapsTrackBuilderTests
     {
         return new GpsPoint
         {
+            DeviceName = "test-device",
             Timestamp = DateTime.Now,
             Latitude = 52.000000 + latOffset,
             Longitude = 13.000000 + lonOffset

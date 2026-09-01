@@ -38,15 +38,26 @@
             <MudItem xs="12" sm="6" md="4">
                 <StatChartTile Title="Coordinates" Icon="@Icons.Material.Filled.GpsFixed" AccentColor="MudBlazor.Color.Info"
                                ChartColor="#00BCD4" Value="@GpsCoordinatesText" Series="@GpsSpeedSeries">
+                    @if (GpsDeviceNames.Count > 0)
+                    {
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mt-2">
+                            <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">Device</MudText>
+                            <MudSelect T="string" Value="_selectedGpsDevice" ValueChanged="OnGpsDeviceSelected"
+                                       Dense="true" Margin="Margin.Dense" Class="flex-grow-1">
+                                <MudSelectItem T="string" Value="@AllGpsDevicesValue">All devices</MudSelectItem>
+                                @foreach (var device in GpsDeviceNames)
+                                {
+                                    <MudSelectItem T="string" Value="@device">@device</MudSelectItem>
+                                }
+                            </MudSelect>
+                        </MudStack>
+                    }
                     @if (LatestGps is not null)
                     {
                         var mapTrack = BuildGoogleMapsTrackExport();
                         <MudStack Spacing="0" Class="mt-2">
-                            <MudText Typo="Typo.body2">Speed: @GpsSpeedText</MudText>
-                            <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">@GpsTimestampText</MudText>
-                            <MudLink Href="@mapTrack.Url" Target="_blank" Typo="Typo.caption">
-                                View track on Google Maps (@mapTrack.ExportedCount points)
-                            </MudLink>
+                            @* <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">@GpsDeviceNameText</MudText> *@
+                            <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">@GpsTimestampText, @GpsDeviceNameText, All points: @GpsPointCountText </MudText>
                             <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">@BuildGoogleMapsSummary(mapTrack)</MudText>
                             @if (mapTrack.ReducedByUrlLimit)
                             {
@@ -54,6 +65,14 @@
                                     URL length limit applied: reduced from @mapTrack.SourceCount to @mapTrack.ExportedCount points.
                                 </MudText>
                             }
+                            <MudStack Row="true" Spacing="2">
+                                <MudLink Href="@GpsCurrentLocationMapUrl" Target="_blank" Typo="Typo.caption">
+                                    View current location on Maps
+                                </MudLink>
+                                <MudLink Href="@mapTrack.Url" Target="_blank" Typo="Typo.caption">
+                                    View track on Maps (@mapTrack.ExportedCount points)
+                                </MudLink>
+                            </MudStack>
                         </MudStack>
                     }
                 </StatChartTile>
@@ -346,14 +365,38 @@
 
     private const int GpsSparkPointCount = 1000;
     private static readonly TimeSpan GpsFlowingThreshold = TimeSpan.FromSeconds(30);
-    private GpsPoint? LatestGps => DataManager.GetLatestGpsPoint();
-    private List<GpsPoint> LastGpsSparkPoints => DataManager.GetLastGpsPoints(GpsSparkPointCount);
+    private const string AllGpsDevicesValue = "";
+    private string _selectedGpsDevice = AllGpsDevicesValue;
+
+    private List<string> GpsDeviceNames => DataManager.GetGpsDeviceNames();
+
+    private void OnGpsDeviceSelected(string device) => _selectedGpsDevice = device;
+
+    private GpsPoint? LatestGps => string.IsNullOrEmpty(_selectedGpsDevice)
+        ? DataManager.GetLatestGpsPoint()
+        : DataManager.GetLatestGpsPoint(_selectedGpsDevice);
+
+    private List<GpsPoint> LastGpsSparkPoints => string.IsNullOrEmpty(_selectedGpsDevice)
+        ? DataManager.GetLastGpsPoints(GpsSparkPointCount)
+        : DataManager.GetLastGpsPoints(GpsSparkPointCount, _selectedGpsDevice);
 
     private string GpsSpeedText => LatestGps is { SpeedKmh: { } spd } ? spd.ToString("0.#") + " km/h" : "--";
 
     private string GpsCoordinatesText => LatestGps is { } gps
-        ? $"{gps.Latitude.ToString("0.0000")}, {gps.Longitude.ToString("0.0000")}"
+        ? $"{gps.Latitude.ToString("0.0000")}, {gps.Longitude.ToString("0.0000")} · {GpsSpeedText}"
         : "--";
+
+    private string GpsDeviceNameText => LatestGps is { } gps ? gps.DeviceName : "";
+
+    // Single-point view of whatever LatestGps currently resolves to (respects the device filter),
+    // as opposed to BuildGoogleMapsTrackExport's multi-point track.
+    private string GpsCurrentLocationMapUrl => LatestGps is { } gps
+        ? $"https://www.google.com/maps/search/?api=1&query={gps.Latitude.ToString("0.000000", System.Globalization.CultureInfo.InvariantCulture)},{gps.Longitude.ToString("0.000000", System.Globalization.CultureInfo.InvariantCulture)}"
+        : "https://www.google.com/maps";
+
+    private string GpsPointCountText => (string.IsNullOrEmpty(_selectedGpsDevice)
+        ? DataManager.GetGpsPointCount()
+        : DataManager.GetGpsPointCount(_selectedGpsDevice)).ToString();
 
     private string GpsTimestampText => LatestGps is { } gps
         ? gps.Timestamp.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss") + " UTC"
@@ -372,7 +415,9 @@
 
     private GoogleMapsTrackExport BuildGoogleMapsTrackExport()
     {
-        var points = DataManager.GetLastGpsPoints(ConfiguredGoogleMapsSourcePointCount);
+        var points = string.IsNullOrEmpty(_selectedGpsDevice)
+            ? DataManager.GetLastGpsPoints(ConfiguredGoogleMapsSourcePointCount)
+            : DataManager.GetLastGpsPoints(ConfiguredGoogleMapsSourcePointCount, _selectedGpsDevice);
         return GoogleMapsTrackBuilder.Build(points);
     }
 
