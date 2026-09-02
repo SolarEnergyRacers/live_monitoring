@@ -34,16 +34,17 @@ public static class TimeseriesEndpoints
 
         // GET /api/timeseries/range?from={0}&to={1}&series={2}
         //
-        //   from   - required. UTC timestamp marking the lower bound of the range (inclusive).
-        //   to     - optional. UTC timestamp marking the upper bound (inclusive). Open-ended (up
+        //   from   - required. Timestamp marking the lower bound of the range (inclusive).
+        //   to     - optional. Timestamp marking the upper bound (inclusive). Open-ended (up
         //            to the newest record) if omitted.
         //   series - optional, comma-separated series names (see DataManager.SeriesNames) to
         //            include, e.g. "speed,battery_voltage". Defaults to every series if omitted.
         //
         // Both from/to accept a full ISO 8601 timestamp (with offset or "Z") or a shortened prefix
         // of one, e.g. "2026-09-02T19" or "2026-09-02" - floored to the start of that unit, since
-        // from/to mark the outer limits of the range rather than an exact instant. JSON
-        // alternative to GET "/" above, which stays CSV/unix-seconds for existing consumers.
+        // from/to mark the outer limits of the range rather than an exact instant. When no
+        // offset/"Z" is present the server's local time zone is assumed. JSON alternative to GET
+        // "/" above, which stays CSV/unix-seconds for existing consumers.
         group.MapGet("/range", (
             [FromQuery(Name = "from")] string? from,
             [FromQuery(Name = "to")] string? to,
@@ -55,14 +56,14 @@ public static class TimeseriesEndpoints
 
             var fromUtc = UtcRangeTimestampParser.Parse(from);
             if (fromUtc is null)
-                return Results.BadRequest("from is not a valid UTC timestamp.");
+                return Results.BadRequest("from is not a valid timestamp.");
 
             DateTime? toUtc = null;
             if (!string.IsNullOrWhiteSpace(to))
             {
                 toUtc = UtcRangeTimestampParser.Parse(to);
                 if (toUtc is null)
-                    return Results.BadRequest("to is not a valid UTC timestamp.");
+                    return Results.BadRequest("to is not a valid timestamp.");
             }
 
             if (toUtc is not null && toUtc < fromUtc)

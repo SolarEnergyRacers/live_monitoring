@@ -18,10 +18,11 @@ u### Endpoints
 - `GET /api/gps/latest?deviceName={0}` - returns the most recently recorded GPS point, optionally
   filtered to a single device.
 - `GET /api/gps/range?from={0}&to={1}&deviceName={2}` - returns the GPS points recorded within a
-  UTC time range. `from` is required, `to` is optional (open-ended up to the newest record).
+  time range. `from` is required, `to` is optional (open-ended up to the newest record).
   Both accept a full ISO 8601 timestamp (e.g. `2026-09-02T19:43:04+00:00`) or a shortened prefix
   (e.g. `2026-09-02T19` or `2026-09-02`), which is floored to the start of that unit - shortened
-  timestamps mark the outer limits of the range.
+  timestamps mark the outer limits of the range. If no offset/`Z` is given, the server's local
+  time zone is assumed.
 - `GET /api/gps/report` - query-string variant of the POST endpoint, for GPS-reporting apps that
   can only fire plain GET requests (e.g. a "share location via URL" feature) rather than send a
   JSON body.
@@ -50,10 +51,11 @@ the console with all the parameters it did send, to help diagnose the reporting 
 - `GET /api/timeseries?start={unixSeconds}&end={unixSeconds}` - CSV export of every stored series
   (`speed`, `mppt1-4_power`, `motor_current/voltage/power`, `battery_voltage/current/power`) for
   external analysis tooling (e.g. pandas). `start`/`end` are Unix seconds.
-- `GET /api/timeseries/range?from={0}&to={1}&series={2}` - JSON equivalent for querying a UTC time
+- `GET /api/timeseries/range?from={0}&to={1}&series={2}` - JSON equivalent for querying a time
   range. `from` is required, `to` is optional (open-ended up to the newest record). Both accept a
   full ISO 8601 timestamp (e.g. `2026-09-02T19:43:04+00:00`) or a shortened prefix (e.g.
-  `2026-09-02T19` or `2026-09-02`), which is floored to the start of that unit. `series` is an
+  `2026-09-02T19` or `2026-09-02`), which is floored to the start of that unit. If no offset/`Z`
+  is given, the server's local time zone is assumed. `series` is an
   optional comma-separated list of series names to include (defaults to every series). Response
   shape: `{ series: string[], points: [{ timestamp, values: (number|null)[] }] }`, one `points`
   entry per distinct timestamp across the included series, `values` aligned to `series` order with

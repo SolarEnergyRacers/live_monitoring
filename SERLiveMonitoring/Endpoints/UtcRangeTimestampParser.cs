@@ -1,9 +1,10 @@
 namespace SERLiveMonitoring.Endpoints;
 
 // Shared "from"/"to" parsing for GET .../range endpoints (GpsEndpoints, TimeseriesEndpoints).
-// Always treats the result as UTC and accepts shortened prefixes (day/hour/minute precision),
-// padding whatever is missing with zero - i.e. flooring to the start of that unit - since from/to
-// mark the outer limits of the range rather than an exact instant.
+// Honors an explicit offset/"Z" when given, otherwise assumes the server's local time zone,
+// and accepts shortened prefixes (day/hour/minute precision), padding whatever is missing with
+// zero - i.e. flooring to the start of that unit - since from/to mark the outer limits of the
+// range rather than an exact instant. The result is always converted to UTC.
 internal static class UtcRangeTimestampParser
 {
     private static readonly string[] ShortenedFormats =
@@ -18,16 +19,16 @@ internal static class UtcRangeTimestampParser
     {
         raw = raw.Trim();
 
-        // Full ISO 8601, with offset or "Z" - e.g. 2026-09-02T19:43:04+00:00.
-        if (DateTime.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture,
-                System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal,
-                out var parsed))
-            return DateTime.SpecifyKind(parsed, DateTimeKind.Utc);
+        // Full ISO 8601 - e.g. 2026-09-02T19:43:04+00:00 (offset honored) or
+        // 2026-09-02T19:43:04 (no offset, assumed local).
+        if (DateTimeOffset.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out var parsed))
+            return parsed.UtcDateTime;
 
-        // Shortened prefix with no offset - e.g. 2026-09-02T19 or 2026-09-02.
+        // Shortened prefix with no offset - e.g. 2026-09-02T19 or 2026-09-02 - assumed local.
         if (DateTime.TryParseExact(raw, ShortenedFormats, System.Globalization.CultureInfo.InvariantCulture,
                 System.Globalization.DateTimeStyles.None, out var floored))
-            return DateTime.SpecifyKind(floored, DateTimeKind.Utc);
+            return DateTime.SpecifyKind(floored, DateTimeKind.Local).ToUniversalTime();
 
         return null;
     }

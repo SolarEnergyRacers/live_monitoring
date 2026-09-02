@@ -22,7 +22,7 @@ public static class GpsEndpoints
             {
                 "POST /api/gps - body: { deviceName, latitude, longitude, timestamp?, speedKmh?, accuracyMeters? }",
                 "GET /api/gps/latest?deviceName={0} - latest recorded GPS point, optionally filtered by device",
-                "GET /api/gps/range?from={0}&to={1}&deviceName={2} - GPS points in a UTC time range (from required, to optional; shortened timestamps like 2026-09-02T19 are floored to the start of that unit)",
+                "GET /api/gps/range?from={0}&to={1}&deviceName={2} - GPS points in a time range (from required, to optional; shortened timestamps like 2026-09-02T19 are floored to the start of that unit; local time zone assumed unless an offset/\"Z\" is given)",
                 "GET /api/gps/report?device={0}&lat={1}&lon={2}&timestamp={3}&hdop={4}&altitude={5}&speed={6}&bearing={7}&eta={8}&etfa={9}&eda={10}&edfa={11}&batproc={12}"
             }
         }));
@@ -62,8 +62,8 @@ public static class GpsEndpoints
 
         // GET /api/gps/range?from={0}&to={1}&deviceName={2}
         //
-        //   from       - required. UTC timestamp marking the lower bound of the range (inclusive).
-        //   to         - optional. UTC timestamp marking the upper bound (inclusive). Open-ended
+        //   from       - required. Timestamp marking the lower bound of the range (inclusive).
+        //   to         - optional. Timestamp marking the upper bound (inclusive). Open-ended
         //                (up to the newest record) if omitted.
         //   deviceName - optional filter, same as GET /latest.
         //
@@ -71,6 +71,7 @@ public static class GpsEndpoints
         // of one, e.g. "2026-09-02T19" or "2026-09-02". Shortened timestamps are floored to the
         // start of that unit - they mark the outer limits of the range, not a midpoint - so
         // from/to are both parsed the same way regardless of which side of the range they're on.
+        // When no offset/"Z" is present the server's local time zone is assumed.
         group.MapGet("/range", (
             [FromQuery(Name = "from")] string? from,
             [FromQuery(Name = "to")] string? to,
@@ -82,14 +83,14 @@ public static class GpsEndpoints
 
             var fromUtc = UtcRangeTimestampParser.Parse(from);
             if (fromUtc is null)
-                return Results.BadRequest("from is not a valid UTC timestamp.");
+                return Results.BadRequest("from is not a valid timestamp.");
 
             DateTime? toUtc = null;
             if (!string.IsNullOrWhiteSpace(to))
             {
                 toUtc = UtcRangeTimestampParser.Parse(to);
                 if (toUtc is null)
-                    return Results.BadRequest("to is not a valid UTC timestamp.");
+                    return Results.BadRequest("to is not a valid timestamp.");
             }
 
             if (toUtc is not null && toUtc < fromUtc)
