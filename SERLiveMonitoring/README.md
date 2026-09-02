@@ -1,5 +1,10 @@
 # SERLiveMonitoring
 
+## Color theme
+
+The UI color theme (Dark, Light, Solarized) is selected on the Settings page and takes effect
+immediately, no restart needed. See [Services/ThemeCatalog.cs](Services/ThemeCatalog.cs) to add more.
+
 ## Deployment
 
 Run these from the solution directory:

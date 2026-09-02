@@ -1,19 +1,40 @@
 ﻿@inherits LayoutComponentBase
+@using SERLiveMonitoring.Services
+@inject SettingsService SettingsService
+@implements IDisposable
 
-<MudThemeProvider IsDarkMode="true" DefaultScrollbar="true" />
+<MudThemeProvider Theme="_theme" IsDarkMode="_isDarkMode" DefaultScrollbar="true" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
 
 <MudLayout>
-    <MudDrawer Open="true" Elevation="1" Style="color: #C1C1C4;">
+    <MudDrawer @bind-Open="_navOpen" Variant="DrawerVariant.Mini" Elevation="1" Style="color: #C1C1C4;">
         <MudNavMenu Style="display: flex; flex-flow: column; height: inherit;">
-            <MudNavLink Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Speed" Href="/">Live Overview</MudNavLink>
-            <MudNavLink Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.BatteryChargingFull" Href="/battery">Battery</MudNavLink>
-            <MudNavLink Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.SolarPower" Href="/mppt">MPPT</MudNavLink>
-            <MudNavLink Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Tune" Href="/ac-dc">AC / DC</MudNavLink>
-            <MudNavLink Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Analytics" Href="/analytics">Analytics</MudNavLink>
-            <MudNavLink Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Settings" Href="/settings">Settings</MudNavLink>
+            <MudStack Row="true" Justify="Justify.Center" Class="py-2">
+                <MudTooltip Text="@(_navOpen ? "Collapse menu" : "Expand menu")" Placement="Placement.Right" Arrow="true">
+                    <MudIconButton Icon="@(_navOpen ? Icons.Material.Filled.ChevronLeft : Icons.Material.Filled.ChevronRight)"
+                                   Color="MudBlazor.Color.Inherit" OnClick="ToggleNav" />
+                </MudTooltip>
+            </MudStack>
+            <MudTooltip Text="Live Overview" Placement="Placement.Right" Arrow="true">
+                <MudNavLink Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Speed" Href="/">Live Overview</MudNavLink>
+            </MudTooltip>
+            <MudTooltip Text="Battery" Placement="Placement.Right" Arrow="true">
+                <MudNavLink Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.BatteryChargingFull" Href="/battery">Battery</MudNavLink>
+            </MudTooltip>
+            <MudTooltip Text="MPPT" Placement="Placement.Right" Arrow="true">
+                <MudNavLink Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.SolarPower" Href="/mppt">MPPT</MudNavLink>
+            </MudTooltip>
+            <MudTooltip Text="AC / DC" Placement="Placement.Right" Arrow="true">
+                <MudNavLink Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Tune" Href="/ac-dc">AC / DC</MudNavLink>
+            </MudTooltip>
+            <MudTooltip Text="Analytics" Placement="Placement.Right" Arrow="true">
+                <MudNavLink Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Analytics" Href="/analytics">Analytics</MudNavLink>
+            </MudTooltip>
+            <MudTooltip Text="Settings" Placement="Placement.Right" Arrow="true">
+                <MudNavLink Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Settings" Href="/settings">Settings</MudNavLink>
+            </MudTooltip>
         </MudNavMenu>
     </MudDrawer>
     <MudMainContent>
@@ -29,3 +50,28 @@
     <a href="." class="reload">Reload</a>
     <span class="dismiss">🗙</span>
 </div>
+
+@code {
+    private MudTheme _theme = new();
+    private bool _isDarkMode = true;
+    private bool _navOpen = true;
+
+    private void ToggleNav() => _navOpen = !_navOpen;
+
+    protected override void OnInitialized()
+    {
+        ApplyTheme();
+        SettingsService.SettingsChanged += OnSettingsChanged;
+    }
+
+    private void OnSettingsChanged()
+    {
+        ApplyTheme();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void ApplyTheme() =>
+        (_theme, _isDarkMode) = ThemeCatalog.Resolve(SettingsService.Current.Theme);
+
+    public void Dispose() => SettingsService.SettingsChanged -= OnSettingsChanged;
+}

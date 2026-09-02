@@ -14,7 +14,7 @@
 <MudText Typo="Typo.h4" Class="mb-4">Settings</MudText>
 
 <MudGrid>
-    <MudItem xs="12" md="6">
+    <MudItem xs="12" md="6" lg="4">
         <MudPaper Class="pa-4 rounded-lg" Elevation="2">
             <MudText Typo="Typo.subtitle1" Class="mb-1">CAN Bus Addresses</MudText>
             <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary" Class="mb-3">
@@ -31,7 +31,7 @@
         </MudPaper>
     </MudItem>
 
-    <MudItem xs="12" md="6">
+    <MudItem xs="12" md="6" lg="4">
         <MudPaper Class="pa-4 rounded-lg" Elevation="2">
             <MudText Typo="Typo.subtitle1" Class="mb-3">Warning Thresholds</MudText>
             <MudStack Spacing="3">
@@ -44,7 +44,14 @@
                 <MudNumericField T="double" Label="Low MPPT power ratio" @bind-Value="_thresholds.LowMpptPowerRatio" Min="0" Max="1" Step="0.05" Variant="Variant.Outlined"
                                  HelperText="Flag a panel once it makes less than this fraction of the other active panels' average" />
                 <MudNumericField T="double" Label="Device communication timeout" @bind-Value="_thresholds.CommTimeoutSeconds" Min="1" Step="1" Adornment="Adornment.End" AdornmentText="s" Variant="Variant.Outlined" />
-                <MudDivider />
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="6" lg="4">
+        <MudPaper Class="pa-4 rounded-lg" Elevation="2">
+            <MudText Typo="Typo.subtitle1" Class="mb-3">General</MudText>
+            <MudStack Spacing="3">
                 <MudNumericField T="int"
                                  Label="Google Maps source points"
                                  @bind-Value="_googleMapsSourcePointCount"
@@ -60,15 +67,22 @@
                     Enable if the motor controller doesn't send current/power over CAN. Motor current
                     and power are then derived from battery current plus total MPPT output current.
                 </MudText>
+                <MudDivider />
+                <MudSelect T="string" Label="Color theme" @bind-Value="_theme" Variant="Variant.Outlined">
+                    @foreach (var name in ThemeCatalog.Names)
+                    {
+                        <MudSelectItem T="string" Value="@name">@name</MudSelectItem>
+                    }
+                </MudSelect>
             </MudStack>
         </MudPaper>
     </MudItem>
 
 </MudGrid>
 
-<MudStack Row="true" Spacing="2" Class="mt-4">
-    <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" StartIcon="@Icons.Material.Filled.Save" OnClick="Save">Save</MudButton>
+<MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2" Class="mt-4">
     <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="ResetToDefaults">Reset to Defaults</MudButton>
+    <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" StartIcon="@Icons.Material.Filled.Save" OnClick="Save">Save</MudButton>
 </MudStack>
 
 @code {
@@ -97,6 +111,7 @@
     private WarningThresholds _thresholds = new();
     private int _googleMapsSourcePointCount = AppSettings.DefaultGoogleMapsSourcePointCount;
     private bool _noMcCanData;
+    private string _theme = ThemeCatalog.Dark;
     protected override void OnInitialized() => LoadFromSettings(SettingsService.Current);
 
     private void LoadFromSettings(AppSettings settings)
@@ -121,6 +136,7 @@
             AppSettings.MaxGoogleMapsSourcePointCount);
 
         _noMcCanData = settings.NoMcCanData;
+        _theme = ThemeCatalog.Names.Contains(settings.Theme) ? settings.Theme : ThemeCatalog.Dark;
 
         _addressFields = FieldDefs.Select(f => new AddressField
         {
@@ -165,7 +181,8 @@
             CanAddresses = addresses,
             WarningThresholds = _thresholds,
             GoogleMapsSourcePointCount = _googleMapsSourcePointCount,
-            NoMcCanData = _noMcCanData
+            NoMcCanData = _noMcCanData,
+            Theme = _theme
         });
         Snackbar.Add("Settings saved", Severity.Success);
     }
