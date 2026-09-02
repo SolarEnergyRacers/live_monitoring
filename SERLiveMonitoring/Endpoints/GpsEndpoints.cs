@@ -21,7 +21,7 @@ public static class GpsEndpoints
             endpoints = new[]
             {
                 "POST /api/gps - body: { deviceName, latitude, longitude, timestamp?, speedKmh?, accuracyMeters? }",
-                "GET /api/gps/latest - latest recorded GPS point",
+                "GET /api/gps/latest?deviceName={0} - latest recorded GPS point, optionally filtered by device",
                 "GET /api/gps/report?device={0}&lat={1}&lon={2}&timestamp={3}&hdop={4}&altitude={5}&speed={6}&bearing={7}&eta={8}&etfa={9}&eda={10}&edfa={11}&batproc={12}"
             }
         }));
@@ -51,9 +51,11 @@ public static class GpsEndpoints
             return Results.Created($"/api/gps/{point.Id}", point);
         });
 
-        group.MapGet("/latest", (DataManager dataManager) =>
+        group.MapGet("/latest", ([FromQuery(Name = "deviceName")] string? deviceName, DataManager dataManager) =>
         {
-            var latest = dataManager.GetLatestGpsPoint();
+            var latest = string.IsNullOrWhiteSpace(deviceName)
+                ? dataManager.GetLatestGpsPoint()
+                : dataManager.GetLatestGpsPoint(deviceName);
             return latest is null ? Results.NotFound() : Results.Ok(latest);
         });
 

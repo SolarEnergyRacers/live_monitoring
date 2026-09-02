@@ -13,6 +13,9 @@ builder.Services.AddRazorComponents()
 builder.Services.AddMudServices();
 builder.Services.AddApexCharts();
 
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
 // Lets a GPS-reporting device on a different origin (e.g. a phone browser page, not a native app)
 // POST to /api/gps. Wide open since this is a trusted-network tool with no auth anywhere else.
 builder.Services.AddCors(options =>
@@ -69,6 +72,10 @@ if (!app.Environment.IsDevelopment())
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseAntiforgery();
 app.UseCors();
+
+// Swagger UI at /swagger for exploring the GPS/timeseries API.
+app.UseSwagger();
+app.UseSwaggerUI();
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>()

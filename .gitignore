@@ -431,5 +431,6 @@ FodyWeavers.xsd
 **/xBee_and_ServerPC/**
 **/logging*/*
 __pychache__/
-SERLiveMonitoring/datastore/**
+SERLiveMonitoring/datastore*/**
 SERLiveMonitoring/appsettings.json
+

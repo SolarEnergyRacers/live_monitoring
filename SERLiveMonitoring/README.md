@@ -1,11 +1,11 @@
 # SERLiveMonitoring
-
 ## Color theme
 
 The UI color theme (Dark, Light, Solarized) is selected on the Settings page and takes effect
 immediately, no restart needed. See [Services/ThemeCatalog.cs](Services/ThemeCatalog.cs) to add more.
 
 ## Deployment
+### Linux
 
 Run these from the solution directory:
 
@@ -19,6 +19,10 @@ dotnet publish ./SERLiveMonitoring.csproj -c Release -r linux-x64 \
 -p:IncludeNativeLibrariesForSelfExtract=true \
 -p:DebugType=None
 ```
+
+### Windows
+
+Run these from the solution directory:
 
 Eventually `rm -rf publish bin obj`
 

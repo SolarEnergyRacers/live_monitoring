@@ -61,6 +61,10 @@ def main() -> int:
     print(f"Fetched {len(df)} rows from {df.index[0]} to {df.index[-1]}\n")
     print(df.describe())
 
+    for column in df.columns:
+        print(f"\nColumn: {column}")
+        print(df[column].describe())
+
     # Example derived value: total solar power isn't a stored column, but sums trivially from the
     # four MPPT columns pandas already gave us.
     solar_total = df[["mppt1_power", "mppt2_power", "mppt3_power", "mppt4_power"]].sum(axis=1)
