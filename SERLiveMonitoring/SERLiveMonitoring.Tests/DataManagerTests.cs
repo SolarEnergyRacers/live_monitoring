@@ -283,4 +283,43 @@ public class DataManagerTests
         Assert.Equal(2, inRange.Count);
         Assert.DoesNotContain(inRange, p => p.Latitude == 3);
     }
+
+    [Fact]
+    public void GetGpsRange_OpenEndedTo_ReturnsEverythingFromStartOnward()
+    {
+        var t0 = DateTime.Now;
+        _dataManager.AddGpsPoint(NewGpsPoint(t0.AddMinutes(-5), 1, 1));
+        _dataManager.AddGpsPoint(NewGpsPoint(t0, 2, 2));
+        _dataManager.AddGpsPoint(NewGpsPoint(t0.AddMinutes(5), 3, 3));
+
+        var result = _dataManager.GetGpsRange(t0, null);
+
+        Assert.Equal(2, result.Count);
+        Assert.DoesNotContain(result, p => p.Latitude == 1);
+    }
+
+    [Fact]
+    public void GetGpsRange_DeviceNameFilter_ExcludesOtherDevices()
+    {
+        var t0 = DateTime.Now;
+        _dataManager.AddGpsPoint(new GpsPoint { DeviceName = "device-a", Timestamp = t0, Latitude = 1, Longitude = 1 });
+        _dataManager.AddGpsPoint(new GpsPoint { DeviceName = "device-b", Timestamp = t0, Latitude = 2, Longitude = 2 });
+
+        var result = _dataManager.GetGpsRange(t0.AddMinutes(-1), t0.AddMinutes(1), "device-a");
+
+        Assert.Single(result);
+        Assert.Equal("device-a", result[0].DeviceName);
+    }
+
+    [Fact]
+    public void GetGpsRange_NoMatches_ReturnsEmptyList()
+    {
+        var t0 = DateTime.Now;
+        _dataManager.AddGpsPoint(NewGpsPoint(t0, 1, 1));
+
+        var result = _dataManager.GetGpsRange(t0.AddMinutes(5), t0.AddMinutes(10));
+
+        Assert.Empty(result);
+    }
 }
+

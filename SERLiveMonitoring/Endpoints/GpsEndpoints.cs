@@ -22,6 +22,7 @@ public static class GpsEndpoints
             {
                 "POST /api/gps - body: { deviceName, latitude, longitude, timestamp?, speedKmh?, accuracyMeters? }",
                 "GET /api/gps/latest?deviceName={0} - latest recorded GPS point, optionally filtered by device",
+                "GET /api/gps/range?from={0}&to={1}&deviceName={2} - GPS points in a UTC time range (from required, to optional; shortened timestamps like 2026-09-02T19 are floored to the start of that unit)",
                 "GET /api/gps/report?device={0}&lat={1}&lon={2}&timestamp={3}&hdop={4}&altitude={5}&speed={6}&bearing={7}&eta={8}&etfa={9}&eda={10}&edfa={11}&batproc={12}"
             }
         }));
@@ -57,6 +58,50 @@ public static class GpsEndpoints
                 ? dataManager.GetLatestGpsPoint()
                 : dataManager.GetLatestGpsPoint(deviceName);
             return latest is null ? Results.NotFound() : Results.Ok(latest);
+        });
+
+        // GET /api/gps/range?from={0}&to={1}&deviceName={2}
+        //
+        //   from       - required. UTC timestamp marking the lower bound of the range (inclusive).
+        //   to         - optional. UTC timestamp marking the upper bound (inclusive). Open-ended
+        //                (up to the newest record) if omitted.
+        //   deviceName - optional filter, same as GET /latest.
+        //
+        // Both from/to accept a full ISO 8601 timestamp (with offset or "Z") or a shortened prefix
+        // of one, e.g. "2026-09-02T19" or "2026-09-02". Shortened timestamps are floored to the
+        // start of that unit - they mark the outer limits of the range, not a midpoint - so
+        // from/to are both parsed the same way regardless of which side of the range they're on.
+        group.MapGet("/range", (
+            [FromQuery(Name = "from")] string? from,
+            [FromQuery(Name = "to")] string? to,
+            [FromQuery(Name = "deviceName")] string? deviceName,
+            DataManager dataManager) =>
+        {
+            if (string.IsNullOrWhiteSpace(from))
+                return Results.BadRequest("from is required.");
+
+            var fromUtc = UtcRangeTimestampParser.Parse(from);
+            if (fromUtc is null)
+                return Results.BadRequest("from is not a valid UTC timestamp.");
+
+            DateTime? toUtc = null;
+            if (!string.IsNullOrWhiteSpace(to))
+            {
+                toUtc = UtcRangeTimestampParser.Parse(to);
+                if (toUtc is null)
+                    return Results.BadRequest("to is not a valid UTC timestamp.");
+            }
+
+            if (toUtc is not null && toUtc < fromUtc)
+                return Results.BadRequest("to must not be earlier than from.");
+
+            // GpsPoint.Timestamp is stored normalized-to-local (see NormalizeToLocal), so the
+            // parsed UTC bounds must be converted the same way before comparing against it.
+            var fromLocal = fromUtc.Value.ToLocalTime();
+            var toLocal = toUtc?.ToLocalTime();
+
+            var points = dataManager.GetGpsRange(fromLocal, toLocal, string.IsNullOrWhiteSpace(deviceName) ? null : deviceName);
+            return Results.Ok(points);
         });
 
         // GET /api/gps/report?lat={0}&lon={1}&timestamp={2}&hdop={3}&altitude={4}&speed={5}&bearing={6}&eta={7}&etfa={8}&eda={9}&edfa={10}&batproc={11}

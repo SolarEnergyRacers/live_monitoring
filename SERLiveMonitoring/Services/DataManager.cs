@@ -298,6 +298,18 @@ public class DataManager : IDisposable
             return _gpsPoints.Where(p => p.Timestamp >= start && p.Timestamp <= end).ToList();
     }
 
+    // Backs GET /api/gps/range - end is optional (open-ended up to the newest record) and
+    // deviceName is optional, unlike GetGpsHistory which always needs both bounds.
+    public List<GpsPoint> GetGpsRange(DateTime start, DateTime? end, string? deviceName = null)
+    {
+        lock (_lock)
+            return _gpsPoints
+                .Where(p => p.Timestamp >= start
+                    && (end is null || p.Timestamp <= end)
+                    && (deviceName is null || p.DeviceName == deviceName))
+                .ToList();
+    }
+
     // Oldest-first, for drawing as a track (Google Maps directions URLs read waypoints in order).
     public List<GpsPoint> GetLastGpsPoints(int count)
     {
