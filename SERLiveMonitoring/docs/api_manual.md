@@ -11,7 +11,7 @@ these endpoints without any extra setup - just `http://<this machine's LAN IP>:5
 All GPS points are persisted to SQLite (`gps.db`) via `GpsTrackService` and kept in `DataManager`'s
 in-memory history, which powers the GPS tile and diagnostics on the Live Overview page.
 
-u### Endpoints
+### Endpoints
 
 - `GET /api/gps` - lists the endpoints below (useful when browsing to the base URL directly).
 - `POST /api/gps` - JSON body: `{ latitude, longitude, timestamp?, speedKmh?, accuracyMeters? }`.
@@ -29,7 +29,7 @@ u### Endpoints
 
 #### `GET /api/gps/report`
 
-```
+```HTTP
 GET /api/gps/report?lat={0}&lon={1}&timestamp={2}&hdop={3}&altitude={4}&speed={5}&bearing={6}&eta={7}&etfa={8}&eda={9}&edfa={10}&batproc={11}
 ```
 
@@ -63,4 +63,9 @@ the console with all the parameters it did send, to help diagnose the reporting 
 
 ### OsmAnd Tracker Configuration
 
-TODO
+Hamburger-Menu → Einstellungen → [PROFIL] → Streckenaufzeichnung → Online-Aufzeichnung
+
+WebAdresse: `http://[IPADDRESS]:5240/api/gps/report?lat={0}&lon={1}&timestamp={2}&hdop={3}&altitude={4}&speed={5}&bearing={6}&eta={7}&etfa={8}&eda={9}&edfa={10}&batproc={11}`
+Aufzeichnungsintervall: `1 Sekunde`
+Zeitpuffer: `1h30min`
+
