@@ -10,7 +10,7 @@
 
 <MudPaper Class="pa-4 mb-4 rounded-lg" Elevation="2">
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-3" Spacing="2">
-        <MudText Typo="Typo.subtitle1">Timeseries (drag on the chart to select a timeframe)</MudText>
+        <MudText Typo="Typo.subtitle1">Timeseries (drag on the strip below to zoom to a timeframe)</MudText>
         <MudSelect T="ChartSeries" MultiSelection="true" Label="Series" Dense="true" Style="min-width: 280px"
                    @bind-SelectedValues="_selectedSeries" ToStringFunc="@SeriesLabel">
             @foreach (var option in AnalyticsDataService.PlottableSeries)
@@ -34,8 +34,23 @@
     }
     else
     {
-        <div style="height: 380px" @key="MainChartKey">
-            <ApexChart TItem="TimeSeriesPoint" Height="380" Options="_mainChartOptions" OnSelection="OnChartSelection">
+        <div style="height: 340px" @key="MainChartKey">
+            <ApexChart TItem="TimeSeriesPoint" Height="340" Options="_mainChartOptions">
+                @foreach (var option in SelectedSeriesOptions)
+                {
+                    <ApexPointSeries TItem="TimeSeriesPoint"
+                                     Items="@_chartSeriesData.GetValueOrDefault(option.Series, [])"
+                                     Name="@($"{option.Label} ({option.Unit})")"
+                                     Color="@option.Color"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="p => ToEpochMs(p.Timestamp)"
+                                     YValue="p => (decimal)p.Value"
+                                     ShowDataLabels="false" />
+                }
+            </ApexChart>
+        </div>
+        <div style="height: 110px" class="mt-2" @key="@($"brush|{MainChartKey}")">
+            <ApexChart TItem="TimeSeriesPoint" Height="110" Options="_brushChartOptions" OnSelection="OnChartSelection">
                 @foreach (var option in SelectedSeriesOptions)
                 {
                     <ApexPointSeries TItem="TimeSeriesPoint"
@@ -206,7 +221,10 @@ else
     private List<ScatterPoint> _scatterData = [];
     private List<EnergySlice> _energySources = [];
 
+    private const string MainChartId = "analytics-main-chart";
+
     private ApexChartOptions<TimeSeriesPoint> _mainChartOptions = new();
+    private ApexChartOptions<TimeSeriesPoint> _brushChartOptions = new();
     private ApexChartOptions<ScatterPoint> _scatterOptions = new();
     private ApexChartOptions<EnergySlice> _pieOptions = new();
 
@@ -248,6 +266,7 @@ else
             : new();
 
         BuildMainChartOptions();
+        BuildBrushChartOptions();
     }
 
     private void RecomputeAnalysis()
@@ -307,6 +326,7 @@ else
         _rangeEnd = null;
         RecomputeAnalysis();
         BuildMainChartOptions();
+        BuildBrushChartOptions();
     }
 
     private void SetRange(DateTime start, DateTime end)
@@ -320,6 +340,7 @@ else
 
         RecomputeAnalysis();
         BuildMainChartOptions();
+        BuildBrushChartOptions();
     }
 
     private static long ToEpochMs(DateTime dt) => new DateTimeOffset(dt).ToUnixTimeMilliseconds();
@@ -330,15 +351,9 @@ else
         {
             Chart = new Chart
             {
-                // Drag always selects a timeframe (below); zooming is mouse-wheel only, so the two
-                // never compete for the same gesture.
-                Toolbar = new Toolbar
-                {
-                    Show = true,
-                    AutoSelected = AutoSelected.Selection,
-                    Tools = new Tools { Selection = true, Zoom = false, Zoomin = false, Zoomout = false, Pan = false, Measure = false }
-                },
-                Selection = new Selection { Enabled = true, Type = AxisType.X },
+                Id = MainChartId,
+                // Navigation/selection happens on the brush strip below; this chart just renders the zoomed window it targets.
+                Toolbar = new Toolbar { Show = false },
                 Zoom = new Zoom { Enabled = true, AllowMouseWheelZoom = true },
                 Animations = new Animations { Enabled = false }
             },
@@ -346,6 +361,8 @@ else
             Xaxis = new XAxis
             {
                 Type = XAxisType.Datetime,
+                Min = _rangeStart is not null ? ToEpochMs(_rangeStart.Value) : null,
+                Max = _rangeEnd is not null ? ToEpochMs(_rangeEnd.Value) : null,
                 AxisTicks = new AxisTicks { Show = true, Color = "#FFFFFF" },
                 Labels = new XAxisLabels { Style = new AxisLabelStyle { Colors = "#FFFFFF" }, DatetimeUTC = false }
             },
@@ -364,6 +381,41 @@ else
         };
     }
 
+    private void BuildBrushChartOptions()
+    {
+        var (overallStart, overallEnd) = AnalyticsService.GetOverallTimeRange();
+        var selectionMin = _rangeStart ?? overallStart;
+        var selectionMax = _rangeEnd ?? overallEnd;
+
+        _brushChartOptions = new ApexChartOptions<TimeSeriesPoint>
+        {
+            Chart = new Chart
+            {
+                // Dragging the selection window here pans/zooms the main chart (acts as a horizontal scrollbar).
+                Toolbar = new Toolbar { Show = false },
+                Brush = new Brush { Enabled = true, Target = MainChartId },
+                Selection = new Selection
+                {
+                    Enabled = true,
+                    Xaxis = new SelectionXaxis
+                    {
+                        Min = selectionMin is not null ? ToEpochMs(selectionMin.Value) : null,
+                        Max = selectionMax is not null ? ToEpochMs(selectionMax.Value) : null
+                    }
+                },
+                Animations = new Animations { Enabled = false }
+            },
+            Stroke = new Stroke { Width = 1, Curve = Curve.Smooth },
+            Xaxis = new XAxis
+            {
+                Type = XAxisType.Datetime,
+                Labels = new XAxisLabels { Style = new AxisLabelStyle { Colors = "#FFFFFF" }, DatetimeUTC = false }
+            },
+            Yaxis = new List<YAxis> { new() { Show = false } },
+            Legend = new Legend { Show = false }
+        };
+    }
+
     private List<AnnotationsXAxis> BuildAnnotations()
     {
         var annotations = _events.Select(e => new AnnotationsXAxis
@@ -372,17 +424,6 @@ else
             BorderColor = "#FFC107",
             Label = new Label { Text = e.Name, Style = new Style { Color = "#000000", Background = "#FFC107" } }
         }).ToList();
-
-        if (_rangeStart is not null && _rangeEnd is not null)
-        {
-            annotations.Add(new AnnotationsXAxis
-            {
-                X = ToEpochMs(_rangeStart.Value),
-                X2 = ToEpochMs(_rangeEnd.Value),
-                FillColor = "#42A5F5",
-                Opacity = 0.15
-            });
-        }
 
         return annotations;
     }
