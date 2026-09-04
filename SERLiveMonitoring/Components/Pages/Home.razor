@@ -1,5 +1,6 @@
 @page "/"
 @implements IDisposable
+@using System.Reflection
 @inject SerialPortMonitorService SerialService
 @inject DataManager DataManager
 @inject SettingsService SettingsService
@@ -8,7 +9,10 @@
 
 <PageTitle>Live Overview</PageTitle>
 
-<MudText Typo="Typo.h4" Class="mb-4">Live Overview</MudText>
+<MudStack Row="true" AlignItems="AlignItems.Baseline" Spacing="2" Class="mb-4">
+    <MudText Typo="Typo.h4">Live Overview</MudText>
+    <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">v@(Assembly.GetExecutingAssembly().GetName().Version?.ToString(3))</MudText>
+</MudStack>
 
 @{ var warnings = VehicleWarnings.Evaluate(DataManager, _isConnected, SettingsService.Current.WarningThresholds); }
 

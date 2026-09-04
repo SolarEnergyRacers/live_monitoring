@@ -1,8 +1,32 @@
+using System.Reflection;
 using SERLiveMonitoring.Components;
 using SERLiveMonitoring.Endpoints;
 using SERLiveMonitoring.Services;
 using MudBlazor.Services;
 using ApexCharts;
+
+if (args.Any(a => a is "--version" or "-v"))
+{
+    Console.WriteLine(Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "unknown");
+    return;
+}
+
+if (args.Any(a => a is "--help" or "-h"))
+{
+    Console.WriteLine($"""
+        SERLiveMonitoring {Assembly.GetExecutingAssembly().GetName().Version?.ToString(3)}
+
+        Usage: SERLiveMonitoring [options]
+
+        Options:
+          -v, --version   Print the version number and exit.
+          -h, --help      Print this help message and exit.
+
+        All other configuration (listening address, data directory, etc.) is set via
+        appsettings.json - see docs/deployment_manual.md.
+        """);
+    return;
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -82,5 +106,7 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 app.MapGpsEndpoints();
 app.MapTimeseriesEndpoints();
+
+app.Logger.LogInformation("SERLiveMonitoring {Version} starting", Assembly.GetExecutingAssembly().GetName().Version?.ToString(3));
 
 app.Run();
