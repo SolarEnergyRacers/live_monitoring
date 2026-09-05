@@ -8,35 +8,20 @@ Building requires the .NET SDK; the published output is self-contained, so the t
 not need .NET installed.
 
 ## Deployment
-### Linux
 
-Run these from the solution directory:
-
-Eventually `rm -rf publish bin obj`
+From the solution directory, run the publish script with the target shortcut:
 
 ```bash
-dotnet publish ./SERLiveMonitoring.csproj -c Release -r linux-x64 \
---self-contained true \
--o ./publish/linux-x64 \
--p:PublishSingleFile=true \
--p:IncludeNativeLibrariesForSelfExtract=true \
--p:DebugType=None
+python3 ./scripts/publish_release.py            # both targets
+python3 ./scripts/publish_release.py lx64       # Linux x64
+python3 ./scripts/publish_release.py wx64       # Windows x64
+python3 ./scripts/publish_release.py lx64 wx64  # both targets
 ```
 
-### Windows
-
-Run these from the solution directory:
-
+Use `--dry-run` to print the generated `dotnet publish` command without running it. The script
+publishes self-contained, single-file releases to `./publish/linux-x64` or `./publish/win-x64`.
+Each target is built from a fresh temporary copy so stale intermediate files cannot affect a release.
 Eventually `rm -rf publish bin obj`
-
-```bash
-dotnet publish ./SERLiveMonitoring.csproj -c Release -r win-x64 \
-  --self-contained true \
-  -o ./publish/win-x64 \
-  -p:PublishSingleFile=true \
-  -p:IncludeNativeLibrariesForSelfExtract=true \
-  -p:DebugType=None
-```
 
 Outputs:
 
@@ -89,3 +74,38 @@ Live Overview sections), not from `appsettings.json`.
    the machine-specific settings from step 2 above, and `datastore/` holds all previously recorded
    race history.
 4. Start the app again.
+
+## Apendix: Manual Compilation
+
+Run these from the solution directory:
+
+Eventually `rm -rf publish bin obj`
+
+```bash
+dotnet publish ./SERLiveMonitoring.csproj -c Release -r linux-x64 \
+--self-contained true \
+-o ./publish/linux-x64 \
+-p:PublishSingleFile=true \
+-p:IncludeNativeLibrariesForSelfExtract=true \
+-p:DebugType=None
+```
+
+### Windows
+
+Run these from the solution directory:
+
+Eventually `rm -rf publish bin obj`
+
+```bash
+dotnet publish ./SERLiveMonitoring.csproj -c Release -r win-x64 \
+  --self-contained true \
+  -o ./publish/win-x64 \
+  -p:PublishSingleFile=true \
+  -p:IncludeNativeLibrariesForSelfExtract=true \
+  -p:DebugType=None
+```
+
+Outputs:
+
+- Linux: `./publish/linux-x64/SERLiveMonitoring`
+- Windows: `./publish/win-x64/SERLiveMonitoring.exe`

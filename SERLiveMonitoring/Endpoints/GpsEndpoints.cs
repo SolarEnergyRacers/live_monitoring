@@ -174,7 +174,7 @@ public static class GpsEndpoints
                     Timestamp = ParseTimestamp(timestamp) ?? DateTime.Now,
                     Latitude = lat.Value,
                     Longitude = lon.Value,
-                    SpeedKmh = speed,
+                    SpeedKmh = speed * 3.6,
                     AccuracyMeters = hdop
                 });
 
