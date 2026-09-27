@@ -105,8 +105,13 @@ SERLiveMonitoring/   ASP.NET Core Blazor Server app (.NET 10)
   Components/Pages/  One .razor page per dashboard section
   Services/          Serial ingestion, decoding, data storage, warnings, settings
   Models/            Plain data types shared across the app
-  Endpoints/          Minimal API endpoints (GPS ingestion)
+  Endpoints/         Minimal API endpoints (GPS ingestion)
   SERLiveMonitoring.Tests/  xunit test suite
+  scirpts            Helper scripts
+  docs               Manuals
 
 data/                Python CAN telemetry simulator for development
 ```
+## Scripts
+
+There are some helper scripts for seeding, versions number bumping and publishing in the scripts folder.
