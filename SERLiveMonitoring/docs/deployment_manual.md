@@ -4,8 +4,10 @@ How to build a self-contained release and install it on the machine that will ru
 car's CAN bus / GPS hardware during a race. See [user_manual.md](user_manual.md) for how to use the
 app once it's running, and [api_manual.md](api_manual.md) for its HTTP API.
 
-Building requires the .NET SDK; the published output is self-contained, so the target machine does
-not need .NET installed.
+Building requires the .NET 10 SDK; the published output is self-contained, so the target machine
+does not need .NET installed. Build on a machine with internet access so NuGet dependencies can be
+restored.
+
 
 ## Deployment
 
@@ -19,9 +21,9 @@ python3 ./scripts/publish_release.py lx64 wx64  # both targets
 ```
 
 Use `--dry-run` to print the generated `dotnet publish` command without running it. The script
-publishes self-contained, single-file releases to `./publish/linux-x64` or `./publish/win-x64`.
-Each target is built from a fresh temporary copy so stale intermediate files cannot affect a release.
-Eventually `rm -rf publish bin obj`
+publishes self-contained, single-file releases to `./publish/linux-x64` or
+`./publish/win-x64`. Before each non-dry-run publish it removes that target's existing output and
+builds from a temporary copy of the source, so stale intermediate files cannot affect the release.
 
 Outputs:
 
@@ -46,8 +48,9 @@ dotnet publish ./src/MyApp/MyApp.csproj -c Release -r win-x64 --self-contained t
    - `SERLiveMonitoring.staticwebassets.endpoints.json` - required alongside the executable.
    - `wwwroot/` - static assets (CSS, JS) served by the app.
    - `appsettings.json` - configuration (see below). `appsettings.example.json` is a template if
-     you need to recreate it; `appsettings.Development.json` is only used when running from source
-     with `ASPNETCORE_ENVIRONMENT=Development` and can be deleted from a production deployment.
+     you need to recreate it; `appsettings.Development.json` is only needed when intentionally
+     running with `ASPNETCORE_ENVIRONMENT=Development` and can be omitted from a normal production
+     deployment.
    - `datastore/` isn't required - it's (re)created automatically on first run if missing (see
      `Storage:DataDirectory` below).
 2. Adjust `appsettings.json` for the target machine:
@@ -55,15 +58,26 @@ dotnet publish ./src/MyApp/MyApp.csproj -c Release -r win-x64 --self-contained t
      `http://0.0.0.0:5240`, i.e. reachable from any device on the same network at
      `http://<this machine's LAN IP>:5240` - change the port here if 5240 is already in use.
    - `Storage:DataDirectory` - where persisted timeseries/GPS/event history is written and restored
-     from (`datastore` by default, relative to the app's working directory).
+     from (`datastore` in the supplied `appsettings.json`, relative to the app's working directory).
+     The directory is created when data is first written and contains `.bin` timeseries files,
+     `gps.db`, and `events.db`.
    - `AllowedHosts` - leave as `*` unless the app sits behind a reverse proxy with its own host
      checks.
 3. Run `./SERLiveMonitoring` (Linux) or `SERLiveMonitoring.exe` (Windows) from that folder, then
    open `http://localhost:5240` (or the LAN address) in a browser.
 
-Everything else - CAN bus addresses, warning thresholds, UI theme, serial port selection - is
-configured at runtime from the app itself (see [user_manual.md](user_manual.md)'s Settings and
-Live Overview sections), not from `appsettings.json`.
+Everything else - CAN bus addresses, warning thresholds, chart ranges, tile averaging, UI theme,
+serial port selection, and the optional motor-controller setting - is configured at runtime from
+the app itself and saved under the operating system's local application data directory as
+`SER Live Monitoring/settings.json` (see [user_manual.md](user_manual.md)'s Settings and Live
+Overview sections). It is separate from `Storage:DataDirectory` and should be backed up if
+preserving UI/device settings matters.
+
+On Linux, the account running the app must have permission to open the selected serial device,
+often by being a member of the distribution's serial-device group (commonly `dialout`).
+
+After startup, open the dashboard at `http://localhost:5240`; Swagger UI is available at
+`http://localhost:5240/swagger` for the HTTP API.
 
 ## Updating a Deployment
 
@@ -75,11 +89,9 @@ Live Overview sections), not from `appsettings.json`.
    race history.
 4. Start the app again.
 
-## Apendix: Manual Compilation
+## Appendix: Manual Compilation
 
 Run these from the solution directory:
-
-Eventually `rm -rf publish bin obj`
 
 ```bash
 dotnet publish ./SERLiveMonitoring.csproj -c Release -r linux-x64 \
@@ -93,8 +105,6 @@ dotnet publish ./SERLiveMonitoring.csproj -c Release -r linux-x64 \
 ### Windows
 
 Run these from the solution directory:
-
-Eventually `rm -rf publish bin obj`
 
 ```bash
 dotnet publish ./SERLiveMonitoring.csproj -c Release -r win-x64 \
