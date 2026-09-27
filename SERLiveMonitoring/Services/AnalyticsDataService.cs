@@ -21,6 +21,10 @@ public record ScatterPoint(double Speed, double MotorPower);
 
 public record EnergySlice(string Source, double EnergyWh);
 
+// Result of GetAlignedChartSeries: the requested series plus a Distance trace, all sharing the
+// same timestamp axis so a chart with a shared tooltip can display them together.
+public record AlignedChartData(Dictionary<ChartSeries, List<TimeSeriesPoint>> Series, List<TimeSeriesPoint> Distance);
+
 /// <summary>
 /// Turns DataManager's raw per-second timeseries into the aggregates and chart-ready shapes the
 /// Analytics page needs for an arbitrary, user-selected time window - distance/energy totals,
@@ -64,6 +68,61 @@ public class AnalyticsDataService
         return points
             .Select(p => new TimeSeriesPoint(DateTimeOffset.FromUnixTimeSeconds(p.UnixTimestamp).LocalDateTime, p.Value))
             .ToList();
+    }
+
+    // ApexCharts' shared tooltip looks up every series by data-point *index*, so it only shows
+    // one meaningful value per hover unless all series share the exact same set of "x" (timestamp)
+    // values. Building one common, decimated timestamp axis - and approximating a series' value
+    // with its own mean wherever it has no sample at that timestamp - keeps every series aligned
+    // so the shared tooltip can display all of them at once. Speed is always sampled (even if not
+    // requested) so the Distance trace, integrated from it, can always be produced on the same axis.
+    public AlignedChartData GetAlignedChartSeries(
+        IEnumerable<ChartSeries> series, DateTime start, DateTime end, int maxPoints = 2000)
+    {
+        var requested = series.Distinct().ToList();
+        var fetchList = requested.Contains(ChartSeries.Speed) ? requested : [.. requested, ChartSeries.Speed];
+        var raw = fetchList.ToDictionary(s => s, s => _dataManager.GetSeriesRange(s, start, end));
+
+        var timestamps = Decimate(
+            raw.Values.SelectMany(points => points.Select(p => p.UnixTimestamp)).Distinct().OrderBy(t => t).ToList(),
+            maxPoints);
+
+        var result = new Dictionary<ChartSeries, List<TimeSeriesPoint>>();
+        foreach (var s in requested)
+        {
+            var points = raw[s];
+            var byTimestamp = points.ToDictionary(p => p.UnixTimestamp, p => p.Value);
+            var mean = points.Count > 0 ? points.Average(p => p.Value) : 0.0;
+
+            result[s] = timestamps
+                .Select(t => new TimeSeriesPoint(
+                    DateTimeOffset.FromUnixTimeSeconds(t).LocalDateTime,
+                    byTimestamp.TryGetValue(t, out var value) ? value : mean))
+                .ToList();
+        }
+
+        // Distance (km) integrated from Speed (km/h) at 1Hz, reset to 0 at `start` - forward-filled
+        // (not mean-filled) at timestamps with no exact speed sample, since a running total's
+        // "missing value" is whatever it last was, not an average.
+        var runningKm = 0.0;
+        var kmByTimestamp = new Dictionary<long, double>();
+        foreach (var p in raw[ChartSeries.Speed].OrderBy(p => p.UnixTimestamp))
+        {
+            runningKm += p.Value / 3600.0;
+            kmByTimestamp[p.UnixTimestamp] = runningKm;
+        }
+
+        var lastKm = 0.0;
+        var distance = timestamps
+            .Select(t =>
+            {
+                if (kmByTimestamp.TryGetValue(t, out var km))
+                    lastKm = km;
+                return new TimeSeriesPoint(DateTimeOffset.FromUnixTimeSeconds(t).LocalDateTime, lastKm);
+            })
+            .ToList();
+
+        return new AlignedChartData(result, distance);
     }
 
     // Null when the window has no data at all, so the page can show "no data" instead of a

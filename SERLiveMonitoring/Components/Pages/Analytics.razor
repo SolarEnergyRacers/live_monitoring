@@ -1,5 +1,6 @@
 @page "/analytics"
 @inject AnalyticsDataService AnalyticsService
+@inject SettingsService SettingsService
 
 <PageTitle>Analytics</PageTitle>
 
@@ -12,7 +13,7 @@
     <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-3" Spacing="2">
         <MudText Typo="Typo.subtitle1">Timeseries (drag on the strip below to zoom to a timeframe)</MudText>
         <MudSelect T="ChartSeries" MultiSelection="true" Label="Series" Dense="true" Style="min-width: 280px"
-                   @bind-SelectedValues="_selectedSeries" ToStringFunc="@SeriesLabel">
+                   @bind-SelectedValues="_selectedSeries" @bind-SelectedValues:after="OnSeriesSelectionChanged" ToStringFunc="@SeriesLabel">
             @foreach (var option in AnalyticsDataService.PlottableSeries)
             {
                 <MudSelectItem T="ChartSeries" Value="@option.Series">@option.Label (@option.Unit)</MudSelectItem>
@@ -44,9 +45,17 @@
                                      Color="@option.Color"
                                      SeriesType="SeriesType.Line"
                                      XValue="p => ToEpochMs(p.Timestamp)"
-                                     YValue="p => (decimal)p.Value"
+                                     YValue="p => SafeDecimal(p.Value)"
                                      ShowDataLabels="false" />
                 }
+                <ApexPointSeries TItem="TimeSeriesPoint"
+                                 Items="@_distanceData"
+                                 Name="@DistanceSeriesName"
+                                 Color="#8D6E63"
+                                 SeriesType="SeriesType.Line"
+                                 XValue="p => ToEpochMs(p.Timestamp)"
+                                 YValue="p => SafeDecimal(p.Value)"
+                                 ShowDataLabels="false" />
             </ApexChart>
         </div>
         <div style="height: 110px" class="mt-2" @key="@($"brush|{MainChartKey}")">
@@ -59,7 +68,7 @@
                                      Color="@option.Color"
                                      SeriesType="SeriesType.Line"
                                      XValue="p => ToEpochMs(p.Timestamp)"
-                                     YValue="p => (decimal)p.Value"
+                                     YValue="p => SafeDecimal(p.Value)"
                                      ShowDataLabels="false" />
                 }
             </ApexChart>
@@ -170,7 +179,7 @@ else
                     <div style="height: 320px" @key="RangeKey">
                         <ApexChart TItem="ScatterPoint" Height="320" Options="_scatterOptions">
                             <ApexPointSeries TItem="ScatterPoint" Items="_scatterData" Name="Samples" SeriesType="SeriesType.Scatter"
-                                             XValue="p => p.Speed" YValue="p => (decimal)p.MotorPower" />
+                                             XValue="p => p.Speed" YValue="p => SafeDecimal(p.MotorPower)" />
                         </ApexChart>
                     </div>
                 }
@@ -190,7 +199,7 @@ else
                     <div style="height: 320px" @key="RangeKey">
                         <ApexChart TItem="EnergySlice" Height="320" Options="_pieOptions">
                             <ApexPointSeries TItem="EnergySlice" Items="_energySources" SeriesType="SeriesType.Pie"
-                                             XValue="p => p.Source" YValue="p => (decimal)p.EnergyWh" ShowDataLabels="true" />
+                                             XValue="p => p.Source" YValue="p => SafeDecimal(p.EnergyWh)" ShowDataLabels="true" />
                         </ApexChart>
                     </div>
                 }
@@ -201,9 +210,12 @@ else
 
 @code {
     private Dictionary<ChartSeries, List<TimeSeriesPoint>> _chartSeriesData = new();
+    private List<TimeSeriesPoint> _distanceData = [];
     private bool _hasHistory;
     private IReadOnlyCollection<ChartSeries> _selectedSeries = new[] { ChartSeries.Speed };
     private int _dataVersion;
+
+    private const string DistanceSeriesName = "Distance (km)";
 
     private List<EventTimestamp> _events = [];
     private long? _fromEventId;
@@ -241,6 +253,10 @@ else
 
     protected override void OnInitialized()
     {
+        var lastSelection = SettingsService.Current.LastAnalyticsSeries;
+        if (lastSelection is { Count: > 0 })
+            _selectedSeries = lastSelection;
+
         BuildScatterOptions();
         BuildPieOptions();
         RefreshData();
@@ -259,11 +275,17 @@ else
         var (start, end) = AnalyticsService.GetOverallTimeRange();
         _hasHistory = start is not null && end is not null;
 
-        _chartSeriesData = _hasHistory
-            ? AnalyticsDataService.PlottableSeries.ToDictionary(
-                option => option.Series,
-                option => AnalyticsService.GetChartSeries(option.Series, start!.Value, end!.Value))
-            : new();
+        if (_hasHistory)
+        {
+            var aligned = AnalyticsService.GetAlignedChartSeries(AnalyticsDataService.PlottableSeries.Select(o => o.Series), start!.Value, end!.Value);
+            _chartSeriesData = aligned.Series;
+            _distanceData = aligned.Distance;
+        }
+        else
+        {
+            _chartSeriesData = new();
+            _distanceData = [];
+        }
 
         BuildMainChartOptions();
         BuildBrushChartOptions();
@@ -345,8 +367,50 @@ else
 
     private static long ToEpochMs(DateTime dt) => new DateTimeOffset(dt).ToUnixTimeMilliseconds();
 
+    // ApexCharts plots decimal values; raw series can contain NaN/Infinity (e.g. bad sensor reads),
+    // which throws OverflowException when cast directly to decimal.
+    private static decimal SafeDecimal(double value) =>
+        double.IsFinite(value) ? (decimal)Math.Clamp(value, -7.9e28, 7.9e28) : 0m;
+
+    // X-axis tick timestamps are auto-picked by ApexCharts at "nice" round times, not guaranteed to
+    // land exactly on a data point, so this looks up the nearest distance sample (binary search over
+    // the [timestamp, km] pairs baked into the formatter) rather than an exact-timestamp match.
+    private static string BuildXAxisLabelFormatter(List<TimeSeriesPoint> distance)
+    {
+        var pts = string.Join(",", distance.Select(p =>
+            $"[{ToEpochMs(p.Timestamp)},{p.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}]"));
+
+        return "function (value, timestamp) {" +
+               "var pts = [" + pts + "];" +
+               "var d = new Date(timestamp);" +
+               "var hh = String(d.getHours()).padStart(2, '0');" +
+               "var mi = String(d.getMinutes()).padStart(2, '0');" +
+               "var timeStr = hh + ':' + mi;" +
+               "if (pts.length === 0) return timeStr;" +
+               "var lo = 0, hi = pts.length - 1;" +
+               "while (lo < hi) { var mid = (lo + hi) >> 1; if (pts[mid][0] < timestamp) lo = mid + 1; else hi = mid; }" +
+               "var candidates = [pts[lo]]; if (lo > 0) candidates.push(pts[lo - 1]);" +
+               "var best = candidates.reduce(function (a, b) { return Math.abs(a[0] - timestamp) <= Math.abs(b[0] - timestamp) ? a : b; });" +
+               "return timeStr + ' \u00b7 ' + best[1].toFixed(1) + ' km';" +
+               "}";
+    }
+
+    private void OnSeriesSelectionChanged()
+    {
+        var settings = SettingsService.Current;
+        settings.LastAnalyticsSeries = _selectedSeries.ToList();
+        SettingsService.Update(settings);
+    }
+
+    private ChartRangeDefinition? SingleSeriesRange =>
+        SelectedSeriesOptions.ToList() is var series && series.Count == 1
+            ? SettingsService.Current.ChartRanges.Get(series[0].Series)
+            : null;
+
     private void BuildMainChartOptions()
     {
+        var singleRange = SingleSeriesRange;
+
         _mainChartOptions = new ApexChartOptions<TimeSeriesPoint>
         {
             Chart = new Chart
@@ -364,16 +428,43 @@ else
                 Min = _rangeStart is not null ? ToEpochMs(_rangeStart.Value) : null,
                 Max = _rangeEnd is not null ? ToEpochMs(_rangeEnd.Value) : null,
                 AxisTicks = new AxisTicks { Show = true, Color = "#FFFFFF" },
-                Labels = new XAxisLabels { Style = new AxisLabelStyle { Colors = "#FFFFFF" }, DatetimeUTC = false }
+                Labels = new XAxisLabels
+                {
+                    Style = new AxisLabelStyle { Colors = "#FFFFFF" },
+                    DatetimeUTC = false,
+                    Formatter = BuildXAxisLabelFormatter(_distanceData)
+                }
             },
             Yaxis = new List<YAxis>
             {
                 new()
                 {
+                    Min = singleRange?.Min,
+                    Max = singleRange?.Max,
                     DecimalsInFloat = 1,
                     Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = "#FFFFFF" } },
                     AxisBorder = new AxisBorder { Show = true, Color = "#FFFFFF" },
                     AxisTicks = new AxisTicks { Show = true, Color = "#FFFFFF" }
+                },
+                // Distance is always plotted (see DistanceSeriesName) but on its own scale so it
+                // doesn't get squeezed/clipped by whatever range the selected series above use.
+                new()
+                {
+                    SeriesName = DistanceSeriesName,
+                    Opposite = true,
+                    DecimalsInFloat = 1,
+                    Title = new AxisTitle { Text = "km", Style = new AxisTitleStyle { Color = "#FFFFFF" } },
+                    Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = "#FFFFFF" } },
+                    AxisBorder = new AxisBorder { Show = true, Color = "#FFFFFF" },
+                    AxisTicks = new AxisTicks { Show = true, Color = "#FFFFFF" }
+                }
+            },
+            Tooltip = new Tooltip
+            {
+                Shared = true,
+                X = new TooltipX
+                {
+                    Formatter = "function (value) { var d = new Date(value); var yyyy = d.getFullYear(); var mm = String(d.getMonth() + 1).padStart(2, '0'); var dd = String(d.getDate()).padStart(2, '0'); var hh = String(d.getHours()).padStart(2, '0'); var mi = String(d.getMinutes()).padStart(2, '0'); return yyyy + '-' + mm + '-' + dd + ' ' + hh + ':' + mi; }"
                 }
             },
             Legend = new Legend { Labels = new LegendLabels { Colors = "#FFFFFF" } },
@@ -410,6 +501,13 @@ else
             {
                 Type = XAxisType.Datetime,
                 Labels = new XAxisLabels { Style = new AxisLabelStyle { Colors = "#FFFFFF" }, DatetimeUTC = false }
+            },
+            Tooltip = new Tooltip
+            {
+                X = new TooltipX
+                {
+                    Formatter = "function (value) { var d = new Date(value); var yyyy = d.getFullYear(); var mm = String(d.getMonth() + 1).padStart(2, '0'); var dd = String(d.getDate()).padStart(2, '0'); var hh = String(d.getHours()).padStart(2, '0'); var mi = String(d.getMinutes()).padStart(2, '0'); return yyyy + '-' + mm + '-' + dd + ' ' + hh + ':' + mi; }"
+                }
             },
             Yaxis = new List<YAxis> { new() { Show = false } },
             Legend = new Legend { Show = false }

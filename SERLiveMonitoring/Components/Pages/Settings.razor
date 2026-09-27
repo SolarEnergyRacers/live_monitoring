@@ -53,6 +53,16 @@
             <MudText Typo="Typo.subtitle1" Class="mb-3">General</MudText>
             <MudStack Spacing="3">
                 <MudNumericField T="int"
+                                 Label="Tile average window"
+                                 @bind-Value="_tileAverageSeconds"
+                                 Min="@AppSettings.MinTileAverageSeconds"
+                                 Max="@AppSettings.MaxTileAverageSeconds"
+                                 Step="1"
+                                 Adornment="Adornment.End"
+                                 AdornmentText="s"
+                                 Variant="Variant.Outlined"
+                                 HelperText="Seconds of recent data used for the live dashboard tile values." />
+                <MudNumericField T="int"
                                  Label="Google Maps source points"
                                  @bind-Value="_googleMapsSourcePointCount"
                                  Min="@AppSettings.MinGoogleMapsSourcePointCount"
@@ -74,6 +84,63 @@
                         <MudSelectItem T="string" Value="@name">@name</MudSelectItem>
                     }
                 </MudSelect>
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12">
+        <MudPaper Class="pa-4 rounded-lg" Elevation="2">
+            <MudText Typo="Typo.subtitle1" Class="mb-3">Chart Scale Limits</MudText>
+            <MudStack Spacing="2">
+                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                    <MudText Typo="Typo.subtitle2" Style="width:120px; flex-shrink:0;">Speed</MudText>
+                    <MudNumericField T="double" Label="Min" @bind-Value="_chartRanges.Speed.Min" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Max" @bind-Value="_chartRanges.Speed.Max" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Opt min" @bind-Value="_chartRanges.Speed.OptimalMin" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Opt max" @bind-Value="_chartRanges.Speed.OptimalMax" Variant="Variant.Outlined" Style="width:90px;" />
+                </MudStack>
+                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                    <MudText Typo="Typo.subtitle2" Style="width:120px; flex-shrink:0;">Solar Power</MudText>
+                    <MudNumericField T="double" Label="Min" @bind-Value="_chartRanges.SolarPower.Min" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Max" @bind-Value="_chartRanges.SolarPower.Max" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Opt min" @bind-Value="_chartRanges.SolarPower.OptimalMin" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Opt max" @bind-Value="_chartRanges.SolarPower.OptimalMax" Variant="Variant.Outlined" Style="width:90px;" />
+                </MudStack>
+                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                    <MudText Typo="Typo.subtitle2" Style="width:120px; flex-shrink:0;">Motor Power</MudText>
+                    <MudNumericField T="double" Label="Min" @bind-Value="_chartRanges.MotorPower.Min" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Max" @bind-Value="_chartRanges.MotorPower.Max" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Opt min" @bind-Value="_chartRanges.MotorPower.OptimalMin" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Opt max" @bind-Value="_chartRanges.MotorPower.OptimalMax" Variant="Variant.Outlined" Style="width:90px;" />
+                </MudStack>
+                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                    <MudText Typo="Typo.subtitle2" Style="width:120px; flex-shrink:0;">Battery Power</MudText>
+                    <MudNumericField T="double" Label="Min" @bind-Value="_chartRanges.BatteryPower.Min" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Max" @bind-Value="_chartRanges.BatteryPower.Max" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Opt min" @bind-Value="_chartRanges.BatteryPower.OptimalMin" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Opt max" @bind-Value="_chartRanges.BatteryPower.OptimalMax" Variant="Variant.Outlined" Style="width:90px;" />
+                </MudStack>
+                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                    <MudText Typo="Typo.subtitle2" Style="width:120px; flex-shrink:0;">Battery Voltage</MudText>
+                    <MudNumericField T="double" Label="Min" @bind-Value="_chartRanges.BatteryVoltage.Min" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Max" @bind-Value="_chartRanges.BatteryVoltage.Max" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Opt min" @bind-Value="_chartRanges.BatteryVoltage.OptimalMin" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Opt max" @bind-Value="_chartRanges.BatteryVoltage.OptimalMax" Variant="Variant.Outlined" Style="width:90px;" />
+                </MudStack>
+                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                    <MudText Typo="Typo.subtitle2" Style="width:120px; flex-shrink:0;">Battery Current</MudText>
+                    <MudNumericField T="double" Label="Min" @bind-Value="_chartRanges.BatteryCurrent.Min" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Max" @bind-Value="_chartRanges.BatteryCurrent.Max" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Opt min" @bind-Value="_chartRanges.BatteryCurrent.OptimalMin" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Opt max" @bind-Value="_chartRanges.BatteryCurrent.OptimalMax" Variant="Variant.Outlined" Style="width:90px;" />
+                </MudStack>
+                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                    <MudText Typo="Typo.subtitle2" Style="width:120px; flex-shrink:0;">MPPT</MudText>
+                    <MudNumericField T="double" Label="Min" @bind-Value="_chartRanges.Mppt.Min" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Max" @bind-Value="_chartRanges.Mppt.Max" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Opt min" @bind-Value="_chartRanges.Mppt.OptimalMin" Variant="Variant.Outlined" Style="width:90px;" />
+                    <MudNumericField T="double" Label="Opt max" @bind-Value="_chartRanges.Mppt.OptimalMax" Variant="Variant.Outlined" Style="width:90px;" />
+                </MudStack>
             </MudStack>
         </MudPaper>
     </MudItem>
@@ -109,6 +176,8 @@
 
     private List<AddressField> _addressFields = [];
     private WarningThresholds _thresholds = new();
+    private ChartRangeSettings _chartRanges = new();
+    private int _tileAverageSeconds = AppSettings.DefaultTileAverageSeconds;
     private int _googleMapsSourcePointCount = AppSettings.DefaultGoogleMapsSourcePointCount;
     private bool _noMcCanData;
     private string _theme = ThemeCatalog.Dark;
@@ -130,6 +199,22 @@
             CommTimeoutSeconds = settings.WarningThresholds.CommTimeoutSeconds
         };
 
+        _chartRanges = new ChartRangeSettings
+        {
+            Speed = CloneRange(settings.ChartRanges.Speed),
+            SolarPower = CloneRange(settings.ChartRanges.SolarPower),
+            MotorPower = CloneRange(settings.ChartRanges.MotorPower),
+            BatteryPower = CloneRange(settings.ChartRanges.BatteryPower),
+            BatteryVoltage = CloneRange(settings.ChartRanges.BatteryVoltage),
+            BatteryCurrent = CloneRange(settings.ChartRanges.BatteryCurrent),
+            Mppt = CloneRange(settings.ChartRanges.Mppt)
+        };
+
+        _tileAverageSeconds = Math.Clamp(
+            settings.TileAverageSeconds,
+            AppSettings.MinTileAverageSeconds,
+            AppSettings.MaxTileAverageSeconds);
+
         _googleMapsSourcePointCount = Math.Clamp(
             settings.GoogleMapsSourcePointCount,
             AppSettings.MinGoogleMapsSourcePointCount,
@@ -146,6 +231,14 @@
             HexValue = "0x" + f.Get(settings.CanAddresses).ToString("X3")
         }).ToList();
     }
+
+    private static ChartRangeDefinition CloneRange(ChartRangeDefinition range) => new()
+    {
+        Min = range.Min,
+        Max = range.Max,
+        OptimalMin = range.OptimalMin,
+        OptimalMax = range.OptimalMax
+    };
 
     private void Save()
     {
@@ -176,10 +269,42 @@
             return;
         }
 
+        if (_tileAverageSeconds is < AppSettings.MinTileAverageSeconds or > AppSettings.MaxTileAverageSeconds)
+        {
+            Snackbar.Add($"Tile average window must be between {AppSettings.MinTileAverageSeconds} and {AppSettings.MaxTileAverageSeconds} seconds", Severity.Error);
+            return;
+        }
+
+        foreach (var range in new[]
+        {
+            _chartRanges.Speed,
+            _chartRanges.SolarPower,
+            _chartRanges.MotorPower,
+            _chartRanges.BatteryPower,
+            _chartRanges.BatteryVoltage,
+            _chartRanges.BatteryCurrent,
+            _chartRanges.Mppt
+        })
+        {
+            if (range.Min > range.Max)
+            {
+                Snackbar.Add("Each chart range minimum must be less than or equal to its maximum.", Severity.Error);
+                return;
+            }
+
+            if (range.OptimalMin > range.OptimalMax)
+            {
+                Snackbar.Add("Each chart optimal range minimum must be less than or equal to its maximum.", Severity.Error);
+                return;
+            }
+        }
+
         SettingsService.Update(new AppSettings
         {
             CanAddresses = addresses,
             WarningThresholds = _thresholds,
+            ChartRanges = _chartRanges,
+            TileAverageSeconds = _tileAverageSeconds,
             GoogleMapsSourcePointCount = _googleMapsSourcePointCount,
             NoMcCanData = _noMcCanData,
             Theme = _theme

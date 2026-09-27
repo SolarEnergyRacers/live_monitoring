@@ -6,7 +6,7 @@
         }
         <MudStack Spacing="0">
             <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">@Title</MudText>
-            <MudText Typo="Typo.h6">@Value</MudText>
+            <MudText Typo="Typo.h6" Class="@ValueClass">@Value</MudText>
         </MudStack>
     </MudStack>
 </MudPaper>
@@ -16,4 +16,5 @@
     [Parameter] public string Value { get; set; } = "";
     [Parameter] public string? Icon { get; set; }
     [Parameter] public MudBlazor.Color AccentColor { get; set; } = MudBlazor.Color.Primary;
+    [Parameter] public string ValueClass { get; set; } = "";
 }

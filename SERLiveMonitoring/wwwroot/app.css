@@ -7,6 +7,21 @@ html, body {
     padding-top: 0 !important;
 }
 
+/* Compress MudBlazor outlined textbox/select padding app-wide for a denser layout. */
+.mud-input > input.mud-input-root-outlined,
+div.mud-input-slot.mud-input-root-outlined {
+    padding: 10.5px 14px;
+}
+
+.mud-input-label-outlined {
+    transform: translate(14px, 12px) scale(1);
+}
+
+.mud-shrink ~ label.mud-input-label.mud-input-label-inputcontrol.mud-input-label-outlined,
+.mud-input:focus-within ~ label.mud-input-label.mud-input-label-inputcontrol.mud-input-label-outlined {
+    transform: translate(14px, -6px) scale(0.75);
+}
+
 a, .btn-link {
     color: #006bb7;
 }
@@ -62,4 +77,9 @@ h1:focus {
 
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
+}
+
+.negative-power,
+.out-of-range {
+    color: var(--mud-palette-error) !important;
 }

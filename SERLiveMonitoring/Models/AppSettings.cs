@@ -1,3 +1,5 @@
+using SERLiveMonitoring.Services;
+
 namespace SERLiveMonitoring.Models;
 
 public class CanAddressSettings
@@ -23,15 +25,54 @@ public class WarningThresholds
     public double CommTimeoutSeconds { get; set; } = 5;
 }
 
+public class ChartRangeDefinition
+{
+    public double Min { get; set; }
+    public double Max { get; set; }
+    public double OptimalMin { get; set; }
+    public double OptimalMax { get; set; }
+}
+
+public class ChartRangeSettings
+{
+    public ChartRangeDefinition Speed { get; set; } = new() { Min = 0, Max = 110, OptimalMin = 0, OptimalMax = 90 };
+    public ChartRangeDefinition SolarPower { get; set; } = new() { Min = 0, Max = 1500, OptimalMin = 200, OptimalMax = 500 };
+    public ChartRangeDefinition MotorPower { get; set; } = new() { Min = -1000, Max = 3000, OptimalMin = -1500, OptimalMax = 3000 };
+    public ChartRangeDefinition BatteryPower { get; set; } = new() { Min = -1000, Max = 3000, OptimalMin = 0, OptimalMax = 3000 };
+    public ChartRangeDefinition BatteryVoltage { get; set; } = new() { Min = 80, Max = 133, OptimalMin = 94, OptimalMax = 94 };
+    public ChartRangeDefinition BatteryCurrent { get; set; } = new() { Min = -15, Max = 15, OptimalMin = -5, OptimalMax = 15 };
+    public ChartRangeDefinition Mppt { get; set; } = new() { Min = 0, Max = 380, OptimalMin = 100, OptimalMax = 380 };
+
+    public ChartRangeDefinition Get(ChartSeries series) => series switch
+    {
+        ChartSeries.Speed => Speed,
+        ChartSeries.BatteryVoltage => BatteryVoltage,
+        ChartSeries.BatteryCurrent => BatteryCurrent,
+        ChartSeries.BatteryPower => BatteryPower,
+        ChartSeries.MotorPower => MotorPower,
+        ChartSeries.SolarTotal => SolarPower,
+        ChartSeries.Mppt1 or ChartSeries.Mppt2 or ChartSeries.Mppt3 or ChartSeries.Mppt4 => Mppt,
+        _ => Speed,
+    };
+}
+
 public class AppSettings
 {
+    public const int MinTileAverageSeconds = 1;
+    public const int MaxTileAverageSeconds = 3600;
+    public const int DefaultTileAverageSeconds = 15;
     public const int MinGoogleMapsSourcePointCount = 2;
     public const int MaxGoogleMapsSourcePointCount = 1_000_000;
     public const int DefaultGoogleMapsSourcePointCount = 3600;
 
     public CanAddressSettings CanAddresses { get; set; } = new();
     public WarningThresholds WarningThresholds { get; set; } = new();
+    public ChartRangeSettings ChartRanges { get; set; } = new();
+    public int TileAverageSeconds { get; set; } = DefaultTileAverageSeconds;
     public int GoogleMapsSourcePointCount { get; set; } = DefaultGoogleMapsSourcePointCount;
+
+    // Remembers the Analytics page's series dropdown selection between visits/restarts.
+    public List<ChartSeries> LastAnalyticsSeries { get; set; } = [ChartSeries.Speed];
 
     // One of the names in Services.ThemeCatalog.Names.
     public string Theme { get; set; } = "Dark";

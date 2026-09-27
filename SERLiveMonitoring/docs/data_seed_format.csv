@@ -1,0 +1,12 @@
+datetimestamp,          longitude,   latitude,   speed, battery_current, battery_voltage, battery_power, mppt1_power, mppt2_power, mppt3_power, mppt4_power
+2026-09-05T07:17:32.44, -26.0850634, 27.9341261, 90.5,  10,              110,             1100,          400,         400,         400,         400
+
+
+I like to seed the datastore with a cvs file (about 10000 lines). the seeding sould be called via CLI so I
+need a standalone python or c# program that overtakes the filename as argument. It creates the second based
+datastore in the cwd. The datastoreparts (gps data sqlite, other data bin, speed is writen in GPS and bin).
+The CSV has the following format header: datetimestamp, longitude, latitude, speed, battery_current,
+battery_voltage, battery_power, mppt1_power, mppt2_power, mppt3_power, mppt4_power; first line as example:
+2026-09-05T07:17:32.44, -26.0850634, 27.9341261, 90.5, 10, 110, 1100, 400, 400, 400, 400
+If there is already a datastore, then ask for option1 "overwrite" or option2: "append/merge". If merge
+(timestamps overlapping) then the cvs import wins.

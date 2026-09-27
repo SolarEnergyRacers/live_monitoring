@@ -434,3 +434,11 @@ __pychache__/
 SERLiveMonitoring/datastore*/**
 SERLiveMonitoring/appsettings.json
 
+data/**/*.bin
+data/**/*.db
+datastore/**/*.bin
+datastore/**/*.db
+data/datastore-100lines/**
+
+**/publish*/**
+
