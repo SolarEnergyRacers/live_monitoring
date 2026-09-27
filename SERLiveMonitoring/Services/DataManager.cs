@@ -413,7 +413,7 @@ public class DataManager : IDisposable
         {
             Timestamp = timestamp,
             ReadingName = "calc_motor_power",
-            Value = current.Value * voltage.Value,
+            Value = current.Value * (-voltage.Value),
             Unit = "W",
             Tags = new()
         });
@@ -440,7 +440,7 @@ public class DataManager : IDisposable
         var totalMpptCurrent = MpptIds.Sum(id =>
             _latestByKey.GetValueOrDefault(BuildKey("mppt_out_current", new[] { ("mppt_id", id) }))?.Value ?? 0);
 
-        var motorCurrent = batteryCurrent.Value + totalMpptCurrent;
+        var motorCurrent = (-batteryCurrent.Value) + totalMpptCurrent;
 
         _series["motor_current"].AddAndInterpolate(new Reading
         {
@@ -544,21 +544,7 @@ public class DataManager : IDisposable
         }
     }
 
-    // Timestamped speed history for the Home page's event-timestamp chart, which needs a real
-    // datetime x-axis to line up annotations - unlike GetSeries, which returns bare values for the
-    // spark tiles.
-    public List<TimeSeriesPoint> GetSpeedHistory(TimeSpan window)
-    {
-        lock (_lock)
-        {
-            var end = DateTime.Now;
-            var start = end - window;
 
-            return _series["speed"].GetTimeframeWithTimestamps(start, end)
-                .Select(p => new TimeSeriesPoint(DateTimeOffset.FromUnixTimeSeconds(p.UnixTimestamp).LocalDateTime, p.Value))
-                .ToList();
-        }
-    }
 
     public double? GetAverage(ChartSeries series, TimeSpan window)
     {

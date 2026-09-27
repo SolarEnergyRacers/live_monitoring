@@ -18,7 +18,7 @@
         <StatTile Title="Pack Current" Value="@PackCurrentText" Icon="@Icons.Material.Filled.ElectricBolt" />
     </MudItem>
     <MudItem xs="6" sm="4" md="2">
-        <StatTile Title="Pack Power" Value="@PackPowerText" Icon="@Icons.Material.Filled.Power" />
+        <StatTile Title="Pack Power" Value="@PackPowerText" ValueClass="@PackPowerValueClass" Icon="@Icons.Material.Filled.Power" />
     </MudItem>
     <MudItem xs="6" sm="6" md="3">
         <StatTile Title="Precharge State" Value="@PrecStateLabel" Icon="@Icons.Material.Filled.Cable" AccentColor="@PrecStateColor" />
@@ -162,6 +162,7 @@
     private string PackVoltageText => Fmt(BattVolt?.Value, " V");
     private string PackCurrentText => Fmt(BattCurr?.Value, " A");
     private string PackPowerText => Fmt(PackPower, " W");
+    private string PackPowerValueClass => PackPower is < 0 ? "negative-power" : "";
     private string ContactorVoltageText => Fmt(ContVoltage?.Value, " V");
 
     // prec_state codes: 0=error, 1=idle, 2=measure, 3=precharge, 4=run, 5=enable

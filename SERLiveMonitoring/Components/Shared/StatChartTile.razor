@@ -6,7 +6,7 @@
         }
         <MudText Typo="Typo.caption" Color="MudBlazor.Color.Secondary">@Title</MudText>
     </MudStack>
-    <MudText Typo="Typo.h5" Class="mt-1">@Value</MudText>
+    <MudText Typo="Typo.h5" Class="@($"mt-1 {ValueClass}".Trim())">@Value</MudText>
 
     <div style="height: @(ChartHeight)px">
         @if (Points.Count >= 2)
@@ -36,26 +36,30 @@
     [Parameter] public string Value { get; set; } = "--";
     [Parameter] public string? Icon { get; set; }
     [Parameter] public MudBlazor.Color AccentColor { get; set; } = MudBlazor.Color.Primary;
+    [Parameter] public string ValueClass { get; set; } = "";
     [Parameter] public string ChartColor { get; set; } = "#594AE2";
+    [Parameter] public double? YMin { get; set; }
+    [Parameter] public double? YMax { get; set; }
     [Parameter, EditorRequired] public List<double> Series { get; set; } = new();
     [Parameter] public RenderFragment? ChildContent { get; set; }
 
-    private const int ChartHeight = 80;
+    private const int ChartHeight = 120;
 
     private ApexChart<SparkPoint>? _chart;
     private ApexChartOptions<SparkPoint> _options = new();
-    private string? _optionsColor;
+    private (string Color, double? Min, double? Max)? _optionsKey;
 
     private List<SparkPoint> Points => Series.Select((v, i) => new SparkPoint(i, v)).ToList();
 
     protected override void OnParametersSet()
     {
-        // Options are per-chart-instance and cannot be shared, but the color is only known once
-        // parameters bind, so build it lazily instead of in a field initializer.
-        if (_optionsColor == ChartColor)
+        // Options are per-chart-instance and cannot be shared, but the color/range is only known
+        // once parameters bind, so build it lazily instead of in a field initializer.
+        var key = (ChartColor, YMin, YMax);
+        if (_optionsKey == key)
             return;
 
-        _optionsColor = ChartColor;
+        _optionsKey = key;
         _options = new ApexChartOptions<SparkPoint>
         {
             Chart = new Chart
@@ -78,6 +82,8 @@
             {
                 new()
                 {
+                    Min = YMin,
+                    Max = YMax,
                     TickAmount = 2,
                     DecimalsInFloat = 0,
                     Labels = new YAxisLabels { Style = new AxisLabelStyle { FontSize = "10px", Colors = "#FFFFFF" } },

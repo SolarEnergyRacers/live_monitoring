@@ -109,3 +109,16 @@ Outputs:
 
 - Linux: `./publish/linux-x64/SERLiveMonitoring`
 - Windows: `./publish/win-x64/SERLiveMonitoring.exe`
+
+### Data Seeder - Linux
+
+```bash
+cd ~/work/ser6/live_monitoring/SERLiveMonitoring/SERLiveMonitoring.Seeder
+
+dotnet publish ./SERLiveMonitoring.Seeder.csproj -c Release -r linux-x64 --self-contained true -o ./publish/linux-x64 -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None
+
+cd ~/work/ser6/live_monitoring/data
+
+~/work/ser6/live_monitoring/SERLiveMonitoring/SERLiveMonitoring.Seeder/publish/linux-x64/SERLiveMonitoring.Seeder ~/work/ser6/live_monitoring/data/datastore-100lines telemetry_100_lines.csv 
+
+```

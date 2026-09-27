@@ -3,6 +3,7 @@
 @using System.Reflection
 @inject SerialPortMonitorService SerialService
 @inject DataManager DataManager
+@inject AnalyticsDataService AnalyticsService
 @inject SettingsService SettingsService
 @inject EventTimestampService EventTimestampService
 @inject IDialogService DialogService
@@ -23,7 +24,8 @@
             {
                 <MudItem xs="12" sm="6" md="4">
                     <StatChartTile Title="@stat.Title" Icon="@stat.Icon" AccentColor="@stat.AccentColor"
-                                   ChartColor="@stat.ChartColor" Value="@ValueText(stat)" Series="@SparkSeries(stat)" />
+                                   ValueClass="@ValueClass(stat)" ChartColor="@RangeAwareChartColor(stat)" Value="@ValueText(stat)" Series="@SparkSeries(stat)"
+                                   YMin="@ChartRangeFor(stat).Min" YMax="@ChartRangeFor(stat).Max" />
                 </MudItem>
             }
         </MudGrid>
@@ -33,7 +35,8 @@
             {
                 <MudItem xs="6" sm="3">
                     <StatChartTile Title="@stat.Title" Icon="@stat.Icon" AccentColor="@stat.AccentColor"
-                                   ChartColor="@stat.ChartColor" Value="@ValueText(stat)" Series="@SparkSeries(stat)" />
+                                   ValueClass="@ValueClass(stat)" ChartColor="@RangeAwareChartColor(stat)" Value="@ValueText(stat)" Series="@SparkSeries(stat)"
+                                   YMin="@ChartRangeFor(stat).Min" YMax="@ChartRangeFor(stat).Max" />
                 </MudItem>
             }
         </MudGrid>
@@ -250,15 +253,48 @@
 
         <MudItem xs="12" md="8">
             <div style="height: 380px">
-                @if (SpeedHistory.Count >= 2)
+                @if (_speedChartSeriesData.GetValueOrDefault(ChartSeries.Speed, []).Count >= 2)
                 {
                     <ApexChart TItem="TimeSeriesPoint" @ref="_speedChart" Height="380" Options="_speedChartOptions">
                         <ApexPointSeries TItem="TimeSeriesPoint"
-                                         Items="SpeedHistory"
-                                         Name="Speed"
+                                         Items="_speedChartSeriesData.GetValueOrDefault(ChartSeries.Speed, [])"
+                                         Name="Speed (km/h)"
+                                         Color="#42A5F5"
                                          SeriesType="SeriesType.Line"
                                          XValue="p => ToEpochMs(p.Timestamp)"
-                                         YValue="p => (decimal)p.Value"
+                                         YValue="p => SafeDecimal(p.Value)"
+                                         ShowDataLabels="false" />
+                        <ApexPointSeries TItem="TimeSeriesPoint"
+                                         Items="_speedChartDistanceData"
+                                         Name="@DistanceSeriesName"
+                                         Color="#8D6E63"
+                                         SeriesType="SeriesType.Line"
+                                         XValue="p => ToEpochMs(p.Timestamp)"
+                                         YValue="p => SafeDecimal(p.Value)"
+                                         ShowDataLabels="false" />
+                        <ApexPointSeries TItem="TimeSeriesPoint"
+                                         Items="_speedChartSeriesData.GetValueOrDefault(ChartSeries.SolarTotal, [])"
+                                         Name="@SolarPowerSeriesName"
+                                         Color="#FFC107"
+                                         SeriesType="SeriesType.Line"
+                                         XValue="p => ToEpochMs(p.Timestamp)"
+                                         YValue="p => SafeDecimal(p.Value)"
+                                         ShowDataLabels="false" />
+                        <ApexPointSeries TItem="TimeSeriesPoint"
+                                         Items="_speedChartSeriesData.GetValueOrDefault(ChartSeries.BatteryPower, [])"
+                                         Name="@BatteryPowerSeriesName"
+                                         Color="#26A69A"
+                                         SeriesType="SeriesType.Line"
+                                         XValue="p => ToEpochMs(p.Timestamp)"
+                                         YValue="p => SafeDecimal(p.Value)"
+                                         ShowDataLabels="false" />
+                        <ApexPointSeries TItem="TimeSeriesPoint"
+                                         Items="_speedChartSeriesData.GetValueOrDefault(ChartSeries.MotorPower, [])"
+                                         Name="@MotorPowerSeriesName"
+                                         Color="#FF7043"
+                                         SeriesType="SeriesType.Line"
+                                         XValue="p => ToEpochMs(p.Timestamp)"
+                                         YValue="p => SafeDecimal(p.Value)"
                                          ShowDataLabels="false" />
                     </ApexChart>
                 }
@@ -274,7 +310,6 @@
 </MudPaper>
 
 @code {
-    private static readonly TimeSpan AvgWindow = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan SparkWindow = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan DataFlowingThreshold = TimeSpan.FromSeconds(2);
     private static readonly int[] _baudRates = [9600, 19200, 38400, 57600, 115200];
@@ -331,11 +366,36 @@
 
     private record StatDef(string Title, string Icon, MudBlazor.Color AccentColor, string ChartColor, ChartSeries Series, string Unit);
 
+    private ChartRangeDefinition ChartRangeFor(StatDef stat) => SettingsService.Current.ChartRanges.Get(stat.Series);
+
+    private double? AverageValue(StatDef stat)
+    {
+        var averageSeconds = Math.Clamp(
+            SettingsService.Current.TileAverageSeconds,
+            AppSettings.MinTileAverageSeconds,
+            AppSettings.MaxTileAverageSeconds);
+        return DataManager.GetAverage(stat.Series, TimeSpan.FromSeconds(averageSeconds));
+    }
+
+    private bool IsOutOfRange(StatDef stat)
+    {
+        var avg = AverageValue(stat);
+        if (avg is null)
+            return false;
+
+        var range = ChartRangeFor(stat);
+        return avg.Value < range.Min || avg.Value > range.Max;
+    }
+
     private string ValueText(StatDef stat)
     {
-        var avg = DataManager.GetAverage(stat.Series, AvgWindow);
+        var avg = AverageValue(stat);
         return avg is null ? "--" : avg.Value.ToString("0.#") + stat.Unit;
     }
+
+    private string ValueClass(StatDef stat) => IsOutOfRange(stat) ? "out-of-range" : "";
+
+    private string RangeAwareChartColor(StatDef stat) => IsOutOfRange(stat) ? "#F44336" : stat.ChartColor;
 
     private List<double> SparkSeries(StatDef stat) => DataManager.GetSeries(stat.Series, SparkWindow);
 
@@ -360,11 +420,24 @@
     private bool _updatingChart;
     private bool _disposed;
 
+    private const string DistanceSeriesName = "Distance (km)";
+    private const string SolarPowerSeriesName = "Solar Power (W)";
+    private const string BatteryPowerSeriesName = "Battery Power (W)";
+    private const string MotorPowerSeriesName = "Motor Power (W)";
+    private static readonly ChartSeries[] SpeedChartPowerSeries = [ChartSeries.SolarTotal, ChartSeries.BatteryPower, ChartSeries.MotorPower];
+
+    private Dictionary<ChartSeries, List<TimeSeriesPoint>> _speedChartSeriesData = new();
+    private List<TimeSeriesPoint> _speedChartDistanceData = [];
+
+    // ApexCharts plots decimal values; raw series can contain NaN/Infinity (e.g. bad sensor reads),
+    // which throws OverflowException when cast directly to decimal.
+    private static decimal SafeDecimal(double value) =>
+        double.IsFinite(value) ? (decimal)Math.Clamp(value, -7.9e28, 7.9e28) : 0m;
+
     private record DiagSignal(string ReadingName, string Label, string Unit);
     private record DiagRow(string Label, string ValueText, string AgeText, string UpdatedText, MudBlazor.Color AgeColor);
 
     private List<EventTimestamp> Events => EventTimestampService.GetAll();
-    private List<TimeSeriesPoint> SpeedHistory => DataManager.GetSpeedHistory(SpeedChartWindow);
     private List<DiagRow> SignalDiagnostics => DiagSignals.Select(BuildDiagRow).Append(BuildGpsDiagRow()).ToList();
 
     private const int GpsSparkPointCount = 1000;
@@ -486,9 +559,48 @@
 
     private static long ToEpochMs(DateTime dt) => new DateTimeOffset(dt).ToUnixTimeMilliseconds();
 
+    // X-axis tick timestamps are auto-picked by ApexCharts at "nice" round times, not guaranteed to
+    // land exactly on a data point, so this looks up the nearest distance sample (binary search over
+    // the [timestamp, km] pairs baked into the formatter) rather than an exact-timestamp match.
+    private static string BuildXAxisLabelFormatter(List<TimeSeriesPoint> distance)
+    {
+        var pts = string.Join(",", distance.Select(p =>
+            $"[{ToEpochMs(p.Timestamp)},{p.Value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}]"));
+
+        return "function (value, timestamp) {" +
+               "var pts = [" + pts + "];" +
+               "var d = new Date(timestamp);" +
+               "var hh = String(d.getHours()).padStart(2, '0');" +
+               "var mi = String(d.getMinutes()).padStart(2, '0');" +
+               "var timeStr = hh + ':' + mi;" +
+               "if (pts.length === 0) return timeStr;" +
+               "var lo = 0, hi = pts.length - 1;" +
+               "while (lo < hi) { var mid = (lo + hi) >> 1; if (pts[mid][0] < timestamp) lo = mid + 1; else hi = mid; }" +
+               "var candidates = [pts[lo]]; if (lo > 0) candidates.push(pts[lo - 1]);" +
+               "var best = candidates.reduce(function (a, b) { return Math.abs(a[0] - timestamp) <= Math.abs(b[0] - timestamp) ? a : b; });" +
+               "return timeStr + ' \u00b7 ' + best[1].toFixed(1) + ' km';" +
+               "}";
+    }
+
+    // Fetches Speed plus the 3 power series aligned onto one shared timestamp axis (so the chart's
+    // shared tooltip lines them all up) and the Distance trace integrated from Speed, reset to 0 at
+    // the start of this rolling window.
+    private void RefreshSpeedChartData()
+    {
+        var end = DateTime.Now;
+        var start = end - SpeedChartWindow;
+        var aligned = AnalyticsService.GetAlignedChartSeries([ChartSeries.Speed, .. SpeedChartPowerSeries], start, end);
+        _speedChartSeriesData = aligned.Series;
+        _speedChartDistanceData = aligned.Distance;
+    }
+
     private void BuildSpeedChartOptions()
     {
         var windowStart = DateTime.Now - SpeedChartWindow;
+        var speedRange = SettingsService.Current.ChartRanges.Speed;
+        var powerRanges = SettingsService.Current.ChartRanges;
+        var powerMin = new[] { powerRanges.SolarPower.Min, powerRanges.BatteryPower.Min, powerRanges.MotorPower.Min }.Min();
+        var powerMax = new[] { powerRanges.SolarPower.Max, powerRanges.BatteryPower.Max, powerRanges.MotorPower.Max }.Max();
 
         _speedChartOptions = new ApexChartOptions<TimeSeriesPoint>
         {
@@ -498,24 +610,52 @@
                 Animations = new Animations { Enabled = false }
             },
             Stroke = new Stroke { Width = 2, Curve = Curve.Smooth },
-            Colors = new List<string> { "#42A5F5" },
             Xaxis = new XAxis
             {
                 Type = XAxisType.Datetime,
                 AxisTicks = new AxisTicks { Show = true, Color = "#FFFFFF" },
-                Labels = new XAxisLabels { Style = new AxisLabelStyle { Colors = "#FFFFFF" }, DatetimeUTC = false }
+                Labels = new XAxisLabels
+                {
+                    Style = new AxisLabelStyle { Colors = "#FFFFFF" },
+                    DatetimeUTC = false,
+                    Formatter = BuildXAxisLabelFormatter(_speedChartDistanceData)
+                }
             },
             Yaxis = new List<YAxis>
             {
                 new()
                 {
+                    Min = speedRange.Min,
+                    Max = speedRange.Max,
                     Title = new AxisTitle { Text = "km/h", Style = new AxisTitleStyle { Color = "#FFFFFF" } },
+                    DecimalsInFloat = 0,
+                    AxisBorder = new AxisBorder { Show = true, Color = "#FFFFFF" },
+                    AxisTicks = new AxisTicks { Show = true, Color = "#FFFFFF" },
+                    Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = "#FFFFFF" } }
+                },
+                // Distance shares the left side visually with Speed, but gets its own hidden,
+                // independently auto-scaled axis so it isn't clipped by the fixed Speed range above.
+                new()
+                {
+                    SeriesName = DistanceSeriesName,
+                    Show = false
+                },
+                // The 3 power series share one visible axis on the right, scaled to the combined
+                // configured range so their magnitudes stay comparable to each other.
+                new()
+                {
+                    SeriesName = new List<string> { SolarPowerSeriesName, BatteryPowerSeriesName, MotorPowerSeriesName },
+                    Opposite = true,
+                    Min = powerMin,
+                    Max = powerMax,
+                    Title = new AxisTitle { Text = "W", Style = new AxisTitleStyle { Color = "#FFFFFF" } },
                     DecimalsInFloat = 0,
                     AxisBorder = new AxisBorder { Show = true, Color = "#FFFFFF" },
                     AxisTicks = new AxisTicks { Show = true, Color = "#FFFFFF" },
                     Labels = new YAxisLabels { Style = new AxisLabelStyle { Colors = "#FFFFFF" } }
                 }
             },
+            Tooltip = new Tooltip { Shared = true },
             Annotations = new Annotations
             {
                 Xaxis = Events
@@ -565,6 +705,7 @@
     {
         RefreshPorts();
         SerialService.StatusChanged += OnStatusChanged;
+        RefreshSpeedChartData();
         BuildSpeedChartOptions();
 
         // redraw ui at 2Hz, to prevent redrawing for every CAN frame received
@@ -575,6 +716,7 @@
                     return;
 
                 _blinkPhase = !_blinkPhase;
+                RefreshSpeedChartData();
                 BuildSpeedChartOptions();
                 InvokeAsync(StateHasChanged);
             },

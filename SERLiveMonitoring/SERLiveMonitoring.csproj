@@ -7,7 +7,7 @@
     <RootNamespace>SERLiveMonitoring</RootNamespace>
     <AssemblyName>$(AssemblyName.Replace(' ', '_'))</AssemblyName>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
-    <Version>0.1.3</Version>
+    <Version>0.1.7</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,6 +20,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Remove="**/obj/**" />
+    <Compile Remove="**/bin/**" />
+    <Compile Remove="SERLiveMonitoring.Seeder\**" />
+    <Content Remove="SERLiveMonitoring.Seeder\**" />
+    <Content Remove="publish*\**" />
+    <None Remove="publish*\**" />
     <Compile Remove="SERLiveMonitoring.Tests\**" />
     <Content Remove="SERLiveMonitoring.Tests\**" />
     <EmbeddedResource Remove="SERLiveMonitoring.Tests\**" />
